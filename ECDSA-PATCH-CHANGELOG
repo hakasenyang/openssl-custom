@@ -1,0 +1,9 @@
+Changelog [PATCH] OpenSSL1.1h - 30-40% ECDSA performance improvement
+* Sat, 6 Jan 2018 08:21:45 +0100
+- Rebuilt to host the new upstream code (6 Jan 2018).
+* Fri, 5 Jan 2018 20:45:22 +0100
+- Rebuilt to host the new upstream code (5 Jan 2018).
+* Wed, 1 Jan 2018 21:39:19 +0100
+- Inital packaging.
+- Based on OpenSSL 1.1.1dev pull 5001. 
+
