@@ -3586,6 +3586,17 @@ int ssl3_put_cipher_by_char(const SSL_CIPHER *c, unsigned char *p)
     return (2);
 }
 
+struct ssl_cipher_preference_list_st* ssl_get_cipher_preferences(SSL *s)
+{
+    if (s->cipher_list != NULL)
+        return (s->cipher_list);
+
+    if ((s->ctx != NULL) && (s->ctx->cipher_list != NULL))
+        return (s->ctx->cipher_list);
+
+    return NULL;
+}
+
 /*
  * ssl3_choose_cipher - choose a cipher from those offered by the client
  * @s: SSL connection
@@ -3595,12 +3606,23 @@ int ssl3_put_cipher_by_char(const SSL_CIPHER *c, unsigned char *p)
  * Returns the selected cipher or NULL when no common ciphers.
  */
 const SSL_CIPHER *ssl3_choose_cipher(SSL *s, STACK_OF(SSL_CIPHER) *clnt,
-                                     STACK_OF(SSL_CIPHER) *srvr)
+                                     struct ssl_cipher_preference_list_st
+                                     *server_pref)
 {
     const SSL_CIPHER *c, *ret = NULL;
-    STACK_OF(SSL_CIPHER) *prio, *allow;
-    int i, ii, ok;
+    STACK_OF(SSL_CIPHER) *srvr = server_pref->ciphers, *prio, *allow;
+    int i, ii, ok, safari_ec;
     unsigned long alg_k, alg_a, mask_k, mask_a;
+    
+    /* in_group_flags will either be NULL, or will point to an array of
+     * bytes which indicate equal-preference groups in the |prio| stack.
+     * See the comment about |in_group_flags| in the
+     * |ssl_cipher_preference_list_st| struct. */
+    const uint8_t *in_group_flags;
+    
+    /* group_min contains the minimal index so far found in a group, or -1
+     * if no such value exists yet. */
+    int group_min = -1;
 
     /* Let's see which ciphers we can support */
 
@@ -3632,9 +3654,11 @@ const SSL_CIPHER *ssl3_choose_cipher(SSL *s, STACK_OF(SSL_CIPHER) *clnt,
 
     if (s->options & SSL_OP_CIPHER_SERVER_PREFERENCE || tls1_suiteb(s)) {
         prio = srvr;
+        in_group_flags = server_pref->in_group_flags;
         allow = clnt;
     } else {
         prio = clnt;
+        in_group_flags = NULL;
         allow = srvr;
     }
 
@@ -3644,14 +3668,18 @@ const SSL_CIPHER *ssl3_choose_cipher(SSL *s, STACK_OF(SSL_CIPHER) *clnt,
     for (i = 0; i < sk_SSL_CIPHER_num(prio); i++) {
         c = sk_SSL_CIPHER_value(prio, i);
 
+        
+
+        ok = 1;
+
         /* Skip ciphers not supported by the protocol version */
         if (!SSL_IS_DTLS(s) &&
             ((s->version < c->min_tls) || (s->version > c->max_tls)))
-            continue;
+            ok = 0;
         if (SSL_IS_DTLS(s) &&
             (DTLS_VERSION_LT(s->version, c->min_dtls) ||
              DTLS_VERSION_GT(s->version, c->max_dtls)))
-            continue;
+            ok = 0;
 
         mask_k = s->s3->tmp.mask_k;
         mask_a = s->s3->tmp.mask_a;
@@ -3668,10 +3696,10 @@ const SSL_CIPHER *ssl3_choose_cipher(SSL *s, STACK_OF(SSL_CIPHER) *clnt,
 #ifndef OPENSSL_NO_PSK
         /* with PSK there must be server callback set */
         if ((alg_k & SSL_PSK) && s->psk_server_callback == NULL)
-            continue;
+            ok = 0;
 #endif                          /* OPENSSL_NO_PSK */
 
-        ok = (alg_k & mask_k) && (alg_a & mask_a);
+        ok = ok && (alg_k & mask_k) && (alg_a & mask_a);
 #ifdef CIPHER_DEBUG
         fprintf(stderr, "%d:[%08lX:%08lX:%08lX:%08lX]%p:%s\n", ok, alg_k,
                 alg_a, mask_k, mask_a, (void *)c, c->name);
@@ -3688,21 +3716,50 @@ const SSL_CIPHER *ssl3_choose_cipher(SSL *s, STACK_OF(SSL_CIPHER) *clnt,
 
         if (!ok)
             continue;
+
+        safari_ec = 0;
+#if !defined(OPENSSL_NO_EC)
+        if ((alg_k & SSL_kECDHE) && (alg_a & SSL_aECDSA)) {
+            if (s->s3->is_probably_safari)
+                safari_ec = 1;
+        }
+#endif
+
         ii = sk_SSL_CIPHER_find(allow, c);
         if (ii >= 0) {
             /* Check security callback permits this cipher */
             if (!ssl_security(s, SSL_SECOP_CIPHER_SHARED,
                               c->strength_bits, 0, (void *)c))
                 continue;
-#if !defined(OPENSSL_NO_EC)
-            if ((alg_k & SSL_kECDHE) && (alg_a & SSL_aECDSA)
-                && s->s3->is_probably_safari) {
+
+            if (in_group_flags != NULL && in_group_flags[i] == 1) {
+                /* This element of |prio| is in a group. Update
+                 * the minimum index found so far and continue
+                 * looking. */
+                if (group_min == -1 || group_min > ii)
+                    group_min = ii;
+            } else {
+                if (group_min != -1 && group_min < ii)
+                    ii = group_min;
+                if (safari_ec) {
+                    if (!ret)
+                        ret = sk_SSL_CIPHER_value(allow, ii);
+                    continue;
+                }
+                ret = sk_SSL_CIPHER_value(allow, ii);
+                break;
+            }
+        }
+
+        if (in_group_flags != NULL && !in_group_flags[i] && group_min != -1) {
+            /* We are about to leave a group, but we found a match
+             * in it, so that's our answer. */
+            if (safari_ec) {
                 if (!ret)
-                    ret = sk_SSL_CIPHER_value(allow, ii);
+                    ret = sk_SSL_CIPHER_value(allow, group_min);
                 continue;
             }
-#endif
-            ret = sk_SSL_CIPHER_value(allow, ii);
+            ret = sk_SSL_CIPHER_value(allow, group_min);
             break;
         }
     }
