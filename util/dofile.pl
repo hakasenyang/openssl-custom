@@ -1,5 +1,5 @@
 #! /usr/bin/env perl
-# Copyright 2016-2018 The OpenSSL Project Authors. All Rights Reserved.
+# Copyright 2016 The OpenSSL Project Authors. All Rights Reserved.
 #
 # Licensed under the OpenSSL license (the "License").  You may not use
 # this file except in compliance with the License.  You can obtain a copy
@@ -92,21 +92,21 @@ package main;
 # Helper functions for the templates #################################
 
 # It might be practical to quotify some strings and have them protected
-# from possible harm.  These functions primarly quote things that might
+# from possible harm.  These functions primarily quote things that might
 # be interpreted wrongly by a perl eval.
 
 # quotify1 STRING
 # This adds quotes (") around the given string, and escapes any $, @, \,
 # " and ' by prepending a \ to them.
 sub quotify1 {
-    my $s = my $orig = shift @_;
+    my $s = shift @_;
     $s =~ s/([\$\@\\"'])/\\$1/g;
-    $s ne $orig || $s =~ /\s/ ? '"'.$s.'"' : $s;
+    '"'.$s.'"';
 }
 
 # quotify_l LIST
 # For each defined element in LIST (i.e. elements that aren't undef), have
-# it quotified with 'quotofy1'
+# it quotified with 'quotify1'
 sub quotify_l {
     map {
         if (!defined($_)) {

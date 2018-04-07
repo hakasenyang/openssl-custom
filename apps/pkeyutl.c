@@ -8,6 +8,7 @@
  */
 
 #include "apps.h"
+#include "progs.h"
 #include <string.h>
 #include <openssl/err.h>
 #include <openssl/pem.h>
@@ -36,10 +37,11 @@ typedef enum OPTION_choice {
     OPT_PUBIN, OPT_CERTIN, OPT_ASN1PARSE, OPT_HEXDUMP, OPT_SIGN,
     OPT_VERIFY, OPT_VERIFYRECOVER, OPT_REV, OPT_ENCRYPT, OPT_DECRYPT,
     OPT_DERIVE, OPT_SIGFILE, OPT_INKEY, OPT_PEERKEY, OPT_PASSIN,
-    OPT_PEERFORM, OPT_KEYFORM, OPT_PKEYOPT, OPT_KDF, OPT_KDFLEN
+    OPT_PEERFORM, OPT_KEYFORM, OPT_PKEYOPT, OPT_KDF, OPT_KDFLEN,
+    OPT_R_ENUM
 } OPTION_CHOICE;
 
-OPTIONS pkeyutl_options[] = {
+const OPTIONS pkeyutl_options[] = {
     {"help", OPT_HELP, '-', "Display this summary"},
     {"in", OPT_IN, '<', "Input file - default stdin"},
     {"out", OPT_OUT, '>', "Output file - default stdout"},
@@ -64,6 +66,7 @@ OPTIONS pkeyutl_options[] = {
     {"peerform", OPT_PEERFORM, 'E', "Peer key format - default PEM"},
     {"keyform", OPT_KEYFORM, 'E', "Private key format - default PEM"},
     {"pkeyopt", OPT_PKEYOPT, 's', "Public key options as opt:value"},
+    OPT_R_OPTIONS,
 #ifndef OPENSSL_NO_ENGINE
     {"engine", OPT_ENGINE, 's', "Use engine, possibly a hardware device"},
     {"engine_impl", OPT_ENGINE_IMPL, '-',
@@ -81,7 +84,8 @@ int pkeyutl_main(int argc, char **argv)
     char hexdump = 0, asn1parse = 0, rev = 0, *prog;
     unsigned char *buf_in = NULL, *buf_out = NULL, *sig = NULL;
     OPTION_CHOICE o;
-    int buf_inlen = 0, siglen = -1, keyform = FORMAT_PEM, peerform = FORMAT_PEM;
+    int buf_inlen = 0, siglen = -1, keyform = FORMAT_PEM, peerform =
+        FORMAT_PEM;
     int keysize = -1, pkey_op = EVP_PKEY_OP_SIGN, key_type = KEY_PRIVKEY;
     int engine_impl = 0;
     int ret = 1, rv = -1;
@@ -132,6 +136,10 @@ int pkeyutl_main(int argc, char **argv)
         case OPT_KEYFORM:
             if (!opt_format(opt_arg(), OPT_FMT_PDE, &keyform))
                 goto opthelp;
+            break;
+        case OPT_R_CASES:
+            if (!opt_rand(o))
+                goto end;
             break;
         case OPT_ENGINE:
             e = setup_engine(opt_arg(), 0);
@@ -192,18 +200,10 @@ int pkeyutl_main(int argc, char **argv)
         goto opthelp;
 
     if (kdfalg != NULL) {
-        if (kdflen == 0) {
-            BIO_printf(bio_err,
-                       "%s: no KDF length given (-kdflen parameter).\n", prog);
+        if (kdflen == 0)
             goto opthelp;
-        }
-    } else if (inkey == NULL) {
-        BIO_printf(bio_err,
-                   "%s: no private key given (-inkey parameter).\n", prog);
-        goto opthelp;
-    } else if (peerkey != NULL && pkey_op != EVP_PKEY_OP_DERIVE) {
-        BIO_printf(bio_err,
-                   "%s: no peer key given (-peerkey parameter).\n", prog);
+    } else if ((inkey == NULL)
+            || (peerkey != NULL && pkey_op != EVP_PKEY_OP_DERIVE)) {
         goto opthelp;
     }
     ctx = init_ctx(kdfalg, &keysize, inkey, keyform, key_type,
@@ -226,28 +226,24 @@ int pkeyutl_main(int argc, char **argv)
             const char *opt = sk_OPENSSL_STRING_value(pkeyopts, i);
 
             if (pkey_ctrl_string(ctx, opt) <= 0) {
-                BIO_printf(bio_err, "%s: Can't set parameter \"%s\":\n",
-                           prog, opt);
+                BIO_printf(bio_err, "%s: Can't set parameter:\n", prog);
                 ERR_print_errors(bio_err);
                 goto end;
             }
         }
     }
 
-    if (sigfile && (pkey_op != EVP_PKEY_OP_VERIFY)) {
+    if (sigfile != NULL && (pkey_op != EVP_PKEY_OP_VERIFY)) {
         BIO_printf(bio_err,
                    "%s: Signature file specified for non verify\n", prog);
         goto end;
     }
 
-    if (!sigfile && (pkey_op == EVP_PKEY_OP_VERIFY)) {
+    if (sigfile == NULL && (pkey_op == EVP_PKEY_OP_VERIFY)) {
         BIO_printf(bio_err,
                    "%s: No signature file specified for verify\n", prog);
         goto end;
     }
-
-/* FIXME: seed PRNG only if needed */
-    app_RAND_load_file(NULL, 0);
 
     if (pkey_op != EVP_PKEY_OP_DERIVE) {
         in = bio_open_default(infile, 'r', FORMAT_BINARY);
@@ -258,9 +254,10 @@ int pkeyutl_main(int argc, char **argv)
     if (out == NULL)
         goto end;
 
-    if (sigfile) {
+    if (sigfile != NULL) {
         BIO *sigbio = BIO_new_file(sigfile, "rb");
-        if (!sigbio) {
+
+        if (sigbio == NULL) {
             BIO_printf(bio_err, "Can't open signature file %s\n", sigfile);
             goto end;
         }
@@ -272,7 +269,7 @@ int pkeyutl_main(int argc, char **argv)
         }
     }
 
-    if (in) {
+    if (in != NULL) {
         /* Read the input data */
         buf_inlen = bio_to_mem(&buf_in, keysize * 10, in);
         if (buf_inlen < 0) {
@@ -297,8 +294,9 @@ int pkeyutl_main(int argc, char **argv)
         if (rv == 1) {
             BIO_puts(out, "Signature Verified Successfully\n");
             ret = 0;
-        } else
+        } else {
             BIO_puts(out, "Signature Verification Failure\n");
+        }
         goto end;
     }
     if (kdflen != 0) {
@@ -315,11 +313,7 @@ int pkeyutl_main(int argc, char **argv)
                       buf_in, (size_t)buf_inlen);
     }
     if (rv <= 0) {
-        if (pkey_op != EVP_PKEY_OP_DERIVE) {
-            BIO_puts(bio_err, "Public Key operation error\n");
-        } else {
-            BIO_puts(bio_err, "Key derivation failed\n");
-        }
+        BIO_puts(bio_err, "Public Key operation error\n");
         ERR_print_errors(bio_err);
         goto end;
     }
@@ -328,10 +322,11 @@ int pkeyutl_main(int argc, char **argv)
     if (asn1parse) {
         if (!ASN1_parse_dump(out, buf_out, buf_outlen, 1, -1))
             ERR_print_errors(bio_err);
-    } else if (hexdump)
+    } else if (hexdump) {
         BIO_dump(out, (char *)buf_out, buf_outlen);
-    else
+    } else {
         BIO_write(out, buf_out, buf_outlen);
+    }
 
  end:
     EVP_PKEY_CTX_free(ctx);
@@ -393,16 +388,13 @@ static EVP_PKEY_CTX *init_ctx(const char *kdfalg, int *pkeysize,
         impl = e;
 #endif
 
-    if (kdfalg) {
+    if (kdfalg != NULL) {
         int kdfnid = OBJ_sn2nid(kdfalg);
 
         if (kdfnid == NID_undef) {
             kdfnid = OBJ_ln2nid(kdfalg);
-            if (kdfnid == NID_undef) {
-                BIO_printf(bio_err, "The given KDF \"%s\" is unknown.\n",
-                           kdfalg);
+            if (kdfnid == NID_undef)
                 goto end;
-            }
         }
         ctx = EVP_PKEY_CTX_new_id(kdfnid, impl);
     } else {
@@ -454,16 +446,16 @@ static EVP_PKEY_CTX *init_ctx(const char *kdfalg, int *pkeysize,
 }
 
 static int setup_peer(EVP_PKEY_CTX *ctx, int peerform, const char *file,
-                      ENGINE *e)
+                      ENGINE* e)
 {
     EVP_PKEY *peer = NULL;
-    ENGINE *engine = NULL;
+    ENGINE* engine = NULL;
     int ret;
 
     if (peerform == FORMAT_ENGINE)
         engine = e;
     peer = load_pubkey(file, peerform, 0, NULL, engine, "Peer Key");
-    if (!peer) {
+    if (peer == NULL) {
         BIO_printf(bio_err, "Error reading peer key %s\n", file);
         ERR_print_errors(bio_err);
         return 0;

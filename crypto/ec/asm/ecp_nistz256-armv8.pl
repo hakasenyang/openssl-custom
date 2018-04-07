@@ -1,5 +1,5 @@
 #! /usr/bin/env perl
-# Copyright 2015-2016 The OpenSSL Project Authors. All Rights Reserved.
+# Copyright 2015-2018 The OpenSSL Project Authors. All Rights Reserved.
 #
 # Licensed under the OpenSSL license (the "License").  You may not use
 # this file except in compliance with the License.  You can obtain a copy
@@ -663,7 +663,7 @@ __ecp_nistz256_div_by_2:
 	adc	$ap,xzr,xzr		// zap $ap
 	tst	$acc0,#1		// is a even?
 
-	csel	$acc0,$acc0,$t0,eq	// ret = even ? a : a+modulus 
+	csel	$acc0,$acc0,$t0,eq	// ret = even ? a : a+modulus
 	csel	$acc1,$acc1,$t1,eq
 	csel	$acc2,$acc2,$t2,eq
 	csel	$acc3,$acc3,$t3,eq

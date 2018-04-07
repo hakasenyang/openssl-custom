@@ -1430,4 +1430,3 @@ close STDOUT;
 #	Unix. "Unlike" refers to the fact that on Unix signal handler
 #	will always be invoked, core dumped and appropriate exit code
 #	returned to parent (for user notification).
-

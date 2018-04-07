@@ -8,7 +8,7 @@
  */
 
 /*-
-        From: Arne Ansper <arne@cyber.ee>
+        From: Arne Ansper
 
         Why BIO_f_reliable?
 
@@ -110,7 +110,11 @@ typedef struct ok_struct {
 static const BIO_METHOD methods_ok = {
     BIO_TYPE_CIPHER,
     "reliable",
+    /* TODO: Convert to new style write function */
+    bwrite_conv,
     ok_write,
+    /* TODO: Convert to new style read function */
+    bread_conv,
     ok_read,
     NULL,                       /* ok_puts, */
     NULL,                       /* ok_gets, */
@@ -122,7 +126,7 @@ static const BIO_METHOD methods_ok = {
 
 const BIO_METHOD *BIO_f_reliable(void)
 {
-    return (&methods_ok);
+    return &methods_ok;
 }
 
 static int ok_new(BIO *bi)
@@ -263,7 +267,7 @@ static int ok_write(BIO *b, const char *in, int inl)
     ret = inl;
 
     if ((ctx == NULL) || (next == NULL) || (BIO_get_init(b) == 0))
-        return (0);
+        return 0;
 
     if (ctx->sigio && !sig_out(b))
         return 0;
@@ -277,7 +281,7 @@ static int ok_write(BIO *b, const char *in, int inl)
                 BIO_copy_next_retry(b);
                 if (!BIO_should_retry(b))
                     ctx->cont = 0;
-                return (i);
+                return i;
             }
             ctx->buf_off += i;
             n -= i;
@@ -291,7 +295,7 @@ static int ok_write(BIO *b, const char *in, int inl)
         }
 
         if ((in == NULL) || (inl <= 0))
-            return (0);
+            return 0;
 
         n = (inl + ctx->buf_len > OK_BLOCK_SIZE + OK_BLOCK_BLOCK) ?
             (int)(OK_BLOCK_SIZE + OK_BLOCK_BLOCK - ctx->buf_len) : inl;
@@ -311,7 +315,7 @@ static int ok_write(BIO *b, const char *in, int inl)
 
     BIO_clear_retry_flags(b);
     BIO_copy_next_retry(b);
-    return (ret);
+    return ret;
 }
 
 static long ok_ctrl(BIO *b, int cmd, long num, void *ptr)

@@ -17,12 +17,18 @@ use TLSProxy::Record;
 use TLSProxy::Message;
 use TLSProxy::ClientHello;
 use TLSProxy::ServerHello;
+use TLSProxy::EncryptedExtensions;
+use TLSProxy::Certificate;
+use TLSProxy::CertificateVerify;
 use TLSProxy::ServerKeyExchange;
 use TLSProxy::NewSessionTicket;
 use Time::HiRes qw/usleep/;
 
 my $have_IPv6 = 0;
 my $IP_factory;
+
+my $is_tls13 = 0;
+my $ciphersuite = undef;
 
 sub new
 {
@@ -45,16 +51,15 @@ sub new
         serverpid => 0,
         clientpid => 0,
         reneg => 0,
+        sessionfile => undef,
 
         #Public read
         execute => $execute,
         cert => $cert,
         debug => $debug,
         cipherc => "",
-        ciphers => "AES128-SHA",
-        flight => -1,
-        direction => -1,
-        partial => ["", ""],
+        ciphers => "AES128-SHA:TLS13-AES-128-GCM-SHA256",
+        flight => 0,
         record_list => [],
         message_list => [],
     };
@@ -130,13 +135,14 @@ sub clearClient
     my $self = shift;
 
     $self->{cipherc} = "";
-    $self->{flight} = -1;
-    $self->{direction} = -1;
-    $self->{partial} = ["", ""];
+    $self->{flight} = 0;
     $self->{record_list} = [];
     $self->{message_list} = [];
     $self->{clientflags} = "";
+    $self->{sessionfile} = undef;
     $self->{clientpid} = 0;
+    $is_tls13 = 0;
+    $ciphersuite = undef;
 
     TLSProxy::Message->clear();
     TLSProxy::Record->clear();
@@ -147,7 +153,7 @@ sub clear
     my $self = shift;
 
     $self->clearClient;
-    $self->{ciphers} = "AES128-SHA";
+    $self->{ciphers} = "AES128-SHA:TLS13-AES-128-GCM-SHA256";
     $self->{serverflags} = "";
     $self->{serverconnects} = 1;
     $self->{serverpid} = 0;
@@ -182,9 +188,10 @@ sub start
     $pid = fork();
     if ($pid == 0) {
         my $execcmd = $self->execute
-            ." s_server -max_protocol TLSv1.2 -no_comp -rev -engine ossltest -accept "
+            ." s_server -no_comp -rev -engine ossltest -accept "
             .($self->server_port)
-            ." -cert ".$self->cert." -naccept ".$self->serverconnects;
+            ." -cert ".$self->cert." -cert2 ".$self->cert
+            ." -naccept ".$self->serverconnects;
         unless ($self->supports_IPv6) {
             $execcmd .= " -4";
         }
@@ -219,7 +226,7 @@ sub clientstart
                 $echostr = "test";
             }
             my $execcmd = "echo ".$echostr." | ".$self->execute
-                 ." s_client -max_protocol TLSv1.2 -engine ossltest -connect "
+                 ." s_client -engine ossltest -connect "
                  .($self->proxy_addr).":".($self->proxy_port);
             unless ($self->supports_IPv6) {
                 $execcmd .= " -4";
@@ -229,6 +236,9 @@ sub clientstart
             }
             if ($self->clientflags ne "") {
                 $execcmd .= " ".$self->clientflags;
+            }
+            if (defined $self->sessionfile) {
+                $execcmd .= " -ign_eof";
             }
             if ($self->debug) {
                 print STDERR "Client command: $execcmd\n";
@@ -286,23 +296,34 @@ sub clientstart
 
     #Wait for either the server socket or the client socket to become readable
     my @ready;
+    my $ctr = 0;
     local $SIG{PIPE} = "IGNORE";
-    while(!(TLSProxy::Message->end) && (@ready = $sel->can_read)) {
+    while(     (!(TLSProxy::Message->end)
+                || (defined $self->sessionfile()
+                    && (-s $self->sessionfile()) == 0))
+            && $ctr < 10) {
+        if (!(@ready = $sel->can_read(1))) {
+            $ctr++;
+            next;
+        }
         foreach my $hand (@ready) {
             if ($hand == $server_sock) {
                 $server_sock->sysread($indata, 16384) or goto END;
                 $indata = $self->process_packet(1, $indata);
                 $client_sock->syswrite($indata);
+                $ctr = 0;
             } elsif ($hand == $client_sock) {
                 $client_sock->sysread($indata, 16384) or goto END;
                 $indata = $self->process_packet(0, $indata);
                 $server_sock->syswrite($indata);
+                $ctr = 0;
             } else {
-                print "Err\n";
-                goto END;
+                die "Unexpected handle";
             }
         }
     }
+
+    die "No progress made" if $ctr >= 10;
 
     END:
     print "Connection closed\n";
@@ -348,37 +369,33 @@ sub process_packet
         print "Received client packet\n";
     }
 
-    if ($self->{direction} != $server) {
-        $self->{flight} = $self->{flight} + 1;
-        $self->{direction} = $server;
-    }
-
     print "Packet length = ".length($packet)."\n";
     print "Processing flight ".$self->flight."\n";
 
     #Return contains the list of record found in the packet followed by the
-    #list of messages in those records and any partial message
-    my @ret = TLSProxy::Record->get_records($server, $self->flight, $self->{partial}[$server].$packet);
-    $self->{partial}[$server] = $ret[2];
+    #list of messages in those records
+    my @ret = TLSProxy::Record->get_records($server, $self->flight, $packet);
     push @{$self->record_list}, @{$ret[0]};
     push @{$self->{message_list}}, @{$ret[1]};
 
     print "\n";
 
-    if (scalar(@{$ret[0]}) == 0 or length($ret[2]) != 0) {
-        return "";
-    }
-
     #Finished parsing. Call user provided filter here
-    if (defined $self->filter) {
+    if(defined $self->filter) {
         $self->filter->($self);
     }
 
     #Reconstruct the packet
     $packet = "";
     foreach my $record (@{$self->record_list}) {
-        $packet .= $record->reconstruct_record();
+        #We only replay the records for the current flight
+        if ($record->flight != $self->flight) {
+            next;
+        }
+        $packet .= $record->reconstruct_record($server);
     }
+
+    $self->{flight} = $self->{flight} + 1;
 
     print "Forwarded packet length = ".length($packet)."\n\n";
 
@@ -442,7 +459,7 @@ sub server_addr
 {
     my $self = shift;
     if (@_) {
-      $self->{server_addr} = shift;
+        $self->{server_addr} = shift;
     }
     return $self->{server_addr};
 }
@@ -450,7 +467,7 @@ sub server_port
 {
     my $self = shift;
     if (@_) {
-      $self->{server_port} = shift;
+        $self->{server_port} = shift;
     }
     return $self->{server_port};
 }
@@ -458,7 +475,7 @@ sub filter
 {
     my $self = shift;
     if (@_) {
-      $self->{filter} = shift;
+        $self->{filter} = shift;
     }
     return $self->{filter};
 }
@@ -466,7 +483,7 @@ sub cipherc
 {
     my $self = shift;
     if (@_) {
-      $self->{cipherc} = shift;
+        $self->{cipherc} = shift;
     }
     return $self->{cipherc};
 }
@@ -474,7 +491,7 @@ sub ciphers
 {
     my $self = shift;
     if (@_) {
-      $self->{ciphers} = shift;
+        $self->{ciphers} = shift;
     }
     return $self->{ciphers};
 }
@@ -482,7 +499,7 @@ sub serverflags
 {
     my $self = shift;
     if (@_) {
-      $self->{serverflags} = shift;
+        $self->{serverflags} = shift;
     }
     return $self->{serverflags};
 }
@@ -490,7 +507,7 @@ sub clientflags
 {
     my $self = shift;
     if (@_) {
-      $self->{clientflags} = shift;
+        $self->{clientflags} = shift;
     }
     return $self->{clientflags};
 }
@@ -498,7 +515,7 @@ sub serverconnects
 {
     my $self = shift;
     if (@_) {
-      $self->{serverconnects} = shift;
+        $self->{serverconnects} = shift;
     }
     return $self->{serverconnects};
 }
@@ -518,7 +535,7 @@ sub serverpid
 {
     my $self = shift;
     if (@_) {
-      $self->{serverpid} = shift;
+        $self->{serverpid} = shift;
     }
     return $self->{serverpid};
 }
@@ -541,13 +558,47 @@ sub fill_known_data
     return $ret;
 }
 
+sub is_tls13
+{
+    my $class = shift;
+    if (@_) {
+        $is_tls13 = shift;
+    }
+    return $is_tls13;
+}
+
 sub reneg
 {
     my $self = shift;
     if (@_) {
-      $self->{reneg} = shift;
+        $self->{reneg} = shift;
     }
     return $self->{reneg};
+}
+
+#Setting a sessionfile means that the client will not close until the given
+#file exists. This is useful in TLSv1.3 where otherwise s_client will close
+#immediately at the end of the handshake, but before the session has been
+#received from the server. A side effect of this is that s_client never sends
+#a close_notify, so instead we consider success to be when it sends application
+#data over the connection.
+sub sessionfile
+{
+    my $self = shift;
+    if (@_) {
+        $self->{sessionfile} = shift;
+        TLSProxy::Message->successondata(1);
+    }
+    return $self->{sessionfile};
+}
+
+sub ciphersuite
+{
+    my $class = shift;
+    if (@_) {
+        $ciphersuite = shift;
+    }
+    return $ciphersuite;
 }
 
 1;
