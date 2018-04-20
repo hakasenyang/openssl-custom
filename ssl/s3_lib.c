@@ -4203,7 +4203,7 @@ const SSL_CIPHER *ssl3_choose_cipher(SSL *s, STACK_OF(SSL_CIPHER) *clnt,
             // if ((alg_a & SSL_aECDSA) && s->version != TLS1_2_VERSION) continue;
             if ((alg_a & SSL_aRSA) && 
                 (alg_k & SSL_kRSA) && 
-                (algorithm_mac != SSL_AEAD) &&
+                (c->algorithm_mac != SSL_AEAD) &&
                 s->version == TLS1_2_VERSION) ok = 0;
 
 #ifndef OPENSSL_NO_PSK
