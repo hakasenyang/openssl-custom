@@ -4200,6 +4200,12 @@ const SSL_CIPHER *ssl3_choose_cipher(SSL *s, STACK_OF(SSL_CIPHER) *clnt,
                  s->version != DTLS1_VERSION))
                 ok = 0;
 
+            /* not use ECDSA under TLS v1.2 */
+            // if ((alg_a & SSL_aECDSA) && s->version != TLS1_2_VERSION) ok = 0;
+	    if ((alg_a & SSL_aRSA) &&
+                (alg_k & SSL_kRSA) &&
+               	(s->version != TLS1_VERSION)) ok = 0;
+
 #ifndef OPENSSL_NO_PSK
             /* with PSK there must be server callback set */
             if ((alg_k & SSL_PSK) && s->psk_server_callback == NULL)
