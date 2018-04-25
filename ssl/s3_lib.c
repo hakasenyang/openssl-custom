@@ -4200,11 +4200,6 @@ const SSL_CIPHER *ssl3_choose_cipher(SSL *s, STACK_OF(SSL_CIPHER) *clnt,
                  s->version != DTLS1_VERSION))
                 ok = 0;
 
-            /* Skip SHA(SHA1) cipher over TLS v1.2 */
-            if (s->version == TLS1_2_VERSION &&
-                c->algorithm_mac & SSL_SHA1)
-                ok = 0;
-
             /* Not use weak cipher after TLSv1.0 */
             if ((alg_a & SSL_aRSA) &&
                 (alg_k & SSL_kRSA) &&
