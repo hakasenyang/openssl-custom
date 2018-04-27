@@ -4110,7 +4110,7 @@ const SSL_CIPHER *ssl3_choose_cipher(SSL *s, STACK_OF(SSL_CIPHER) *clnt,
 {
     const SSL_CIPHER *c, *ret = NULL;
     STACK_OF(SSL_CIPHER) *srvr = server_pref->ciphers, *prio, *allow;
-    int i, ii, ok, safari_ec;
+    int i, ii, ok, safari_ec = 0;
     unsigned long alg_k = 0, alg_a = 0, mask_k = 0, mask_a = 0;
 
     /* in_group_flags will either be NULL, or will point to an array of
