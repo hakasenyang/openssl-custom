@@ -3068,10 +3068,22 @@ SSL_CTX *SSL_CTX_new(const SSL_METHOD *meth)
     ret->ext.status_type = TLSEXT_STATUSTYPE_nothing;
 
     /*
-     * Default max early data is a fully loaded single record. Could be split
-     * across multiple records in practice
+     * We cannot usefully set a default max_early_data here (which gets
+     * propagated in SSL_new(), for the following reason: setting the
+     * SSL field causes tls_construct_stoc_early_data() to tell the
+     * client that early data will be accepted when constructing a TLS 1.3
+     * session ticket, and the client will accordingly send us early data
+     * when using that ticket (if the client has early data to send).
+     * However, in order for the early data to actually be consumed by
+     * the application, the application must also have calls to
+     * SSL_read_early_data(); otherwise we'll just skip past the early data
+     * and ignore it.  So, since the application must add calls to
+     * SSL_read_early_data(), we also require them to add
+     * calls to SSL_CTX_set_max_early_data() in order to use early data,
+     * eliminating the bandwidth-wasting early data in the case described
+     * above.
      */
-    ret->max_early_data = SSL3_RT_MAX_PLAIN_LENGTH;
+    ret->max_early_data = 0;
 
     return ret;
  err:
@@ -3310,6 +3322,12 @@ void ssl_set_masks(SSL *s)
     /* Allow Ed25519 for TLS 1.2 if peer supports it */
     if (!(mask_a & SSL_aECDSA) && ssl_has_cert(s, SSL_PKEY_ED25519)
             && pvalid[SSL_PKEY_ED25519] & CERT_PKEY_EXPLICIT_SIGN
+            && TLS1_get_version(s) == TLS1_2_VERSION)
+            mask_a |= SSL_aECDSA;
+
+    /* Allow Ed448 for TLS 1.2 if peer supports it */
+    if (!(mask_a & SSL_aECDSA) && ssl_has_cert(s, SSL_PKEY_ED448)
+            && pvalid[SSL_PKEY_ED448] & CERT_PKEY_EXPLICIT_SIGN
             && TLS1_get_version(s) == TLS1_2_VERSION)
             mask_a |= SSL_aECDSA;
 #endif
@@ -5402,7 +5420,10 @@ int SSL_stateless(SSL *s)
     if (ret > 0 && s->ext.cookieok)
         return 1;
 
-    return 0;
+    if (s->hello_retry_request == SSL_HRR_PENDING && !ossl_statem_in_error(s))
+        return 0;
+
+    return -1;
 }
 
 void SSL_force_post_handshake_auth(SSL *ssl)
@@ -5454,5 +5475,16 @@ int SSL_verify_client_post_handshake(SSL *ssl)
     }
 
     ossl_statem_set_in_init(ssl, 1);
+    return 1;
+}
+
+int SSL_CTX_set_session_ticket_cb(SSL_CTX *ctx,
+                                  SSL_CTX_generate_session_ticket_fn gen_cb,
+                                  SSL_CTX_decrypt_session_ticket_fn dec_cb,
+                                  void *arg)
+{
+    ctx->generate_ticket_cb = gen_cb;
+    ctx->decrypt_ticket_cb = dec_cb;
+    ctx->ticket_cb_data = arg;
     return 1;
 }

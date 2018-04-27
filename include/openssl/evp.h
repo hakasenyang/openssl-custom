@@ -59,6 +59,8 @@
 # define EVP_PKEY_SIPHASH NID_siphash
 # define EVP_PKEY_X25519 NID_X25519
 # define EVP_PKEY_ED25519 NID_ED25519
+# define EVP_PKEY_X448 NID_X448
+# define EVP_PKEY_ED448 NID_ED448
 
 #ifdef  __cplusplus
 extern "C" {
@@ -344,6 +346,8 @@ int (*EVP_CIPHER_meth_get_ctrl(const EVP_CIPHER *cipher))(EVP_CIPHER_CTX *,
 # define         EVP_CTRL_SET_PIPELINE_INPUT_BUFS        0x23
 /* Set the input buffer lengths to use for a pipelined operation */
 # define         EVP_CTRL_SET_PIPELINE_INPUT_LENS        0x24
+# define         EVP_CTRL_GET_DRBG                       0x25
+# define         EVP_CTRL_SET_DRBG                       0x26
 
 /* Padding modes */
 #define EVP_PADDING_PKCS7       1
