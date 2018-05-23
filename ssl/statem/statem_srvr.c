@@ -1708,7 +1708,7 @@ static int tls_early_post_process_client_hello(SSL *s)
     /* For TLSv1.3 we must select the ciphersuite *before* session resumption */
     if (SSL_IS_TLS13(s)) {
         const SSL_CIPHER *cipher =
-            ssl3_choose_cipher(s, ciphers, SSL_get_ciphers(s));
+            ssl3_choose_cipher(s, ciphers, ssl_get_cipher_preferences(s));
 
         if (cipher == NULL) {
             SSLfatal(s, SSL_AD_HANDSHAKE_FAILURE,
@@ -1889,7 +1889,7 @@ static int tls_early_post_process_client_hello(SSL *s)
             /* check if some cipher was preferred by call back */
             if (pref_cipher == NULL)
                 pref_cipher = ssl3_choose_cipher(s, s->session->ciphers,
-                                                 SSL_get_ciphers(s));
+                                                 ssl_get_cipher_preferences(s));
             if (pref_cipher == NULL) {
                 SSLfatal(s, SSL_AD_HANDSHAKE_FAILURE,
                          SSL_F_TLS_EARLY_POST_PROCESS_CLIENT_HELLO,
@@ -1898,8 +1898,9 @@ static int tls_early_post_process_client_hello(SSL *s)
             }
 
             s->session->cipher = pref_cipher;
-            sk_SSL_CIPHER_free(s->cipher_list);
-            s->cipher_list = sk_SSL_CIPHER_dup(s->session->ciphers);
+            ssl_cipher_preference_list_free(s->cipher_list);
+            s->cipher_list = ssl_cipher_preference_list_from_ciphers(
+                                                       s->session->ciphers);
             sk_SSL_CIPHER_free(s->cipher_list_by_id);
             s->cipher_list_by_id = sk_SSL_CIPHER_dup(s->session->ciphers);
         }
@@ -2211,7 +2212,7 @@ WORK_STATE tls_post_process_client_hello(SSL *s, WORK_STATE wst)
             /* In TLSv1.3 we selected the ciphersuite before resumption */
             if (!SSL_IS_TLS13(s)) {
                 cipher =
-                    ssl3_choose_cipher(s, s->session->ciphers, SSL_get_ciphers(s));
+                    ssl3_choose_cipher(s, s->session->ciphers, ssl_get_cipher_preferences(s));
 
                 if (cipher == NULL) {
                     SSLfatal(s, SSL_AD_HANDSHAKE_FAILURE,

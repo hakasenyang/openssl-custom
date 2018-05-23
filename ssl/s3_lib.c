@@ -4095,6 +4095,17 @@ int ssl3_put_cipher_by_char(const SSL_CIPHER *c, WPACKET *pkt, size_t *len)
     return 1;
 }
 
+struct ssl_cipher_preference_list_st* ssl_get_cipher_preferences(SSL *s)
+{
+    if (s->cipher_list != NULL)
+        return (s->cipher_list);
+
+    if ((s->ctx != NULL) && (s->ctx->cipher_list != NULL))
+        return (s->ctx->cipher_list);
+
+    return NULL;
+}
+
 /*
  * ssl3_choose_cipher - choose a cipher from those offered by the client
  * @s: SSL connection
@@ -4104,16 +4115,24 @@ int ssl3_put_cipher_by_char(const SSL_CIPHER *c, WPACKET *pkt, size_t *len)
  * Returns the selected cipher or NULL when no common ciphers.
  */
 const SSL_CIPHER *ssl3_choose_cipher(SSL *s, STACK_OF(SSL_CIPHER) *clnt,
-                                     STACK_OF(SSL_CIPHER) *srvr)
+                                     struct ssl_cipher_preference_list_st
+                                     *server_pref)
 {
     const SSL_CIPHER *c, *ret = NULL;
-    STACK_OF(SSL_CIPHER) *prio, *allow;
-    int i, ii, ok, prefer_sha256 = 0;
+    STACK_OF(SSL_CIPHER) *srvr = server_pref->ciphers, *prio, *allow;
+    int i, ii, ok, prefer_sha256 = 0, safari_ec = 0;
     unsigned long alg_k = 0, alg_a = 0, mask_k = 0, mask_a = 0;
     const EVP_MD *mdsha256 = EVP_sha256();
-#ifndef OPENSSL_NO_CHACHA
-    STACK_OF(SSL_CIPHER) *prio_chacha = NULL;
-#endif
+
+    /* in_group_flags will either be NULL, or will point to an array of
+     * bytes which indicate equal-preference groups in the |prio| stack.
+     * See the comment about |in_group_flags| in the
+     * |ssl_cipher_preference_list_st| struct. */
+    const uint8_t *in_group_flags;
+
+    /* group_min contains the minimal index so far found in a group, or -1
+     * if no such value exists yet. */
+    int group_min = -1;
 
     /* Let's see which ciphers we can support */
 
@@ -4140,54 +4159,13 @@ const SSL_CIPHER *ssl3_choose_cipher(SSL *s, STACK_OF(SSL_CIPHER) *clnt,
 #endif
 
     /* SUITE-B takes precedence over server preference and ChaCha priortiy */
-    if (tls1_suiteb(s)) {
+    if (s->options & SSL_OP_CIPHER_SERVER_PREFERENCE || tls1_suiteb(s)) {
         prio = srvr;
+        in_group_flags = server_pref->in_group_flags;
         allow = clnt;
-    } else if (s->options & SSL_OP_CIPHER_SERVER_PREFERENCE) {
-        prio = srvr;
-        allow = clnt;
-#ifndef OPENSSL_NO_CHACHA
-        /* If ChaCha20 is at the top of the client preference list,
-           and there are ChaCha20 ciphers in the server list, then
-           temporarily prioritize all ChaCha20 ciphers in the servers list. */
-        if (s->options & SSL_OP_PRIORITIZE_CHACHA && sk_SSL_CIPHER_num(clnt) > 0) {
-            c = sk_SSL_CIPHER_value(clnt, 0);
-            if (c->algorithm_enc == SSL_CHACHA20POLY1305) {
-                /* ChaCha20 is client preferred, check server... */
-                int num = sk_SSL_CIPHER_num(srvr);
-                int found = 0;
-                for (i = 0; i < num; i++) {
-                    c = sk_SSL_CIPHER_value(srvr, i);
-                    if (c->algorithm_enc == SSL_CHACHA20POLY1305) {
-                        found = 1;
-                        break;
-                    }
-                }
-                if (found) {
-                    prio_chacha = sk_SSL_CIPHER_new_reserve(NULL, num);
-                    /* if reserve fails, then there's likely a memory issue */
-                    if (prio_chacha != NULL) {
-                        /* Put all ChaCha20 at the top, starting with the one we just found */
-                        sk_SSL_CIPHER_push(prio_chacha, c);
-                        for (i++; i < num; i++) {
-                            c = sk_SSL_CIPHER_value(srvr, i);
-                            if (c->algorithm_enc == SSL_CHACHA20POLY1305)
-                                sk_SSL_CIPHER_push(prio_chacha, c);
-                        }
-                        /* Pull in the rest */
-                        for (i = 0; i < num; i++) {
-                            c = sk_SSL_CIPHER_value(srvr, i);
-                            if (c->algorithm_enc != SSL_CHACHA20POLY1305)
-                                sk_SSL_CIPHER_push(prio_chacha, c);
-                        }
-                        prio = prio_chacha;
-                    }
-                }
-            }
-        }
-# endif
     } else {
         prio = clnt;
+        in_group_flags = NULL;
         allow = srvr;
     }
 
@@ -4218,14 +4196,16 @@ const SSL_CIPHER *ssl3_choose_cipher(SSL *s, STACK_OF(SSL_CIPHER) *clnt,
     for (i = 0; i < sk_SSL_CIPHER_num(prio); i++) {
         c = sk_SSL_CIPHER_value(prio, i);
 
+        ok = 1;
+
         /* Skip ciphers not supported by the protocol version */
         if (!SSL_IS_DTLS(s) &&
             ((s->version < c->min_tls) || (s->version > c->max_tls)))
-            continue;
+            ok = 0;
         if (SSL_IS_DTLS(s) &&
             (DTLS_VERSION_LT(s->version, c->min_dtls) ||
              DTLS_VERSION_GT(s->version, c->max_dtls)))
-            continue;
+            ok = 0;
 
         /*
          * Since TLS 1.3 ciphersuites can be used with any auth or
@@ -4247,10 +4227,10 @@ const SSL_CIPHER *ssl3_choose_cipher(SSL *s, STACK_OF(SSL_CIPHER) *clnt,
 #ifndef OPENSSL_NO_PSK
             /* with PSK there must be server callback set */
             if ((alg_k & SSL_PSK) && s->psk_server_callback == NULL)
-                continue;
+                ok = 0;
 #endif                          /* OPENSSL_NO_PSK */
 
-            ok = (alg_k & mask_k) && (alg_a & mask_a);
+            ok = ok && (alg_k & mask_k) && (alg_a & mask_a);
 #ifdef CIPHER_DEBUG
             fprintf(stderr, "%d:[%08lX:%08lX:%08lX:%08lX]%p:%s\n", ok, alg_k,
                     alg_a, mask_k, mask_a, (void *)c, c->name);
@@ -4267,6 +4247,14 @@ const SSL_CIPHER *ssl3_choose_cipher(SSL *s, STACK_OF(SSL_CIPHER) *clnt,
 
             if (!ok)
                 continue;
+
+            safari_ec = 0;
+#if !defined(OPENSSL_NO_EC)
+            if ((alg_k & SSL_kECDHE) && (alg_a & SSL_aECDSA)) {
+                if (s->s3->is_probably_safari)
+                    safari_ec = 1;
+            }
+#endif
         }
         ii = sk_SSL_CIPHER_find(allow, c);
         if (ii >= 0) {
@@ -4274,14 +4262,7 @@ const SSL_CIPHER *ssl3_choose_cipher(SSL *s, STACK_OF(SSL_CIPHER) *clnt,
             if (!ssl_security(s, SSL_SECOP_CIPHER_SHARED,
                               c->strength_bits, 0, (void *)c))
                 continue;
-#if !defined(OPENSSL_NO_EC)
-            if ((alg_k & SSL_kECDHE) && (alg_a & SSL_aECDSA)
-                && s->s3->is_probably_safari) {
-                if (!ret)
-                    ret = sk_SSL_CIPHER_value(allow, ii);
-                continue;
-            }
-#endif
+
             if (prefer_sha256) {
                 const SSL_CIPHER *tmp = sk_SSL_CIPHER_value(allow, ii);
 
@@ -4293,13 +4274,38 @@ const SSL_CIPHER *ssl3_choose_cipher(SSL *s, STACK_OF(SSL_CIPHER) *clnt,
                     ret = tmp;
                 continue;
             }
-            ret = sk_SSL_CIPHER_value(allow, ii);
+
+            if (in_group_flags != NULL && in_group_flags[i] == 1) {
+                /* This element of |prio| is in a group. Update
+                 * the minimum index found so far and continue
+                 * looking. */
+                if (group_min == -1 || group_min > ii)
+                    group_min = ii;
+            } else {
+                if (group_min != -1 && group_min < ii)
+                    ii = group_min;
+                if (safari_ec) {
+                    if (!ret)
+                        ret = sk_SSL_CIPHER_value(allow, ii);
+                    continue;
+                }
+                ret = sk_SSL_CIPHER_value(allow, ii);
+                break;
+            }
+        }
+
+        if (in_group_flags != NULL && !in_group_flags[i] && group_min != -1) {
+            /* We are about to leave a group, but we found a match
+             * in it, so that's our answer. */
+            if (safari_ec) {
+                if (!ret)
+                    ret = sk_SSL_CIPHER_value(allow, group_min);
+                continue;
+            }
+            ret = sk_SSL_CIPHER_value(allow, group_min);
             break;
         }
     }
-#ifndef OPENSSL_NO_CHACHA
-    sk_SSL_CIPHER_free(prio_chacha);
-#endif
     return ret;
 }
 

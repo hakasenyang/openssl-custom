@@ -1709,7 +1709,8 @@ int ssl_choose_server_version(SSL *s, CLIENTHELLO_MSG *hello, DOWNGRADE *dgrd)
             /* TODO(TLS1.3): Remove this before release */
             if (candidate_vers == TLS1_3_VERSION_DRAFT
                     || candidate_vers == TLS1_3_VERSION_DRAFT_27
-                    || candidate_vers == TLS1_3_VERSION_DRAFT_26) {
+                    || candidate_vers == TLS1_3_VERSION_DRAFT_26
+                    || candidate_vers == TLS1_3_VERSION_DRAFT_23) {
                 if (best_vers == TLS1_3_VERSION
                         && orig_candidate > candidate_vers)
                     continue;

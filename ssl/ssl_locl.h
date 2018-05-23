@@ -741,9 +741,46 @@ typedef struct ssl_ctx_ext_secure_st {
     unsigned char tick_aes_key[TLSEXT_TICK_KEY_LENGTH];
 } SSL_CTX_EXT_SECURE;
 
+/* ssl_cipher_preference_list_st contains a list of SSL_CIPHERs with
+ * equal-preference groups. For TLS clients, the groups are moot because the
+ * server picks the cipher and groups cannot be expressed on the wire. However,
+ * for servers, the equal-preference groups allow the client's preferences to
+ * be partially respected. (This only has an effect with
+ * SSL_OP_CIPHER_SERVER_PREFERENCE).
+ *
+ * The equal-preference groups are expressed by grouping SSL_CIPHERs together.
+ * All elements of a group have the same priority: no ordering is expressed
+ * within a group.
+ *
+ * The values in |ciphers| are in one-to-one correspondence with
+ * |in_group_flags|. (That is, sk_SSL_CIPHER_num(ciphers) is the number of
+ * bytes in |in_group_flags|.) The bytes in |in_group_flags| are either 1, to
+ * indicate that the corresponding SSL_CIPHER is not the last element of a
+ * group, or 0 to indicate that it is.
+ *
+ * For example, if |in_group_flags| contains all zeros then that indicates a
+ * traditional, fully-ordered preference. Every SSL_CIPHER is the last element
+ * of the group (i.e. they are all in a one-element group).
+ *
+ * For a more complex example, consider:
+ *   ciphers:        A  B  C  D  E  F
+ *   in_group_flags: 1  1  0  0  1  0
+ *
+ * That would express the following, order:
+ *
+ *    A         E
+ *    B -> D -> F
+ *    C
+ */
+struct ssl_cipher_preference_list_st {
+   STACK_OF(SSL_CIPHER) *ciphers;
+   uint8_t *in_group_flags;
+};
+
+
 struct ssl_ctx_st {
     const SSL_METHOD *method;
-    STACK_OF(SSL_CIPHER) *cipher_list;
+    struct ssl_cipher_preference_list_st *cipher_list;
     /* same as above but sorted for lookup */
     STACK_OF(SSL_CIPHER) *cipher_list_by_id;
     /* TLSv1.3 specific ciphersuites */
@@ -1120,7 +1157,7 @@ struct ssl_st {
     /* Per connection DANE state */
     SSL_DANE dane;
     /* crypto */
-    STACK_OF(SSL_CIPHER) *cipher_list;
+    struct ssl_cipher_preference_list_st *cipher_list;
     STACK_OF(SSL_CIPHER) *cipher_list_by_id;
     /* TLSv1.3 specific ciphersuites */
     STACK_OF(SSL_CIPHER) *tls13_ciphersuites;
@@ -2224,7 +2261,7 @@ __owur int ssl_cipher_ptr_id_cmp(const SSL_CIPHER *const *ap,
 __owur int set_ciphersuites(STACK_OF(SSL_CIPHER) **currciphers, const char *str);
 __owur STACK_OF(SSL_CIPHER) *ssl_create_cipher_list(const SSL_METHOD *ssl_method,
                                                     STACK_OF(SSL_CIPHER) *tls13_ciphersuites,
-                                                    STACK_OF(SSL_CIPHER) **cipher_list,
+                                                    struct ssl_cipher_preference_list_st **cipher_list,
                                                     STACK_OF(SSL_CIPHER) **cipher_list_by_id,
                                                     const char *rule_str,
                                                     CERT *c);
@@ -2234,6 +2271,13 @@ __owur int bytes_to_cipher_list(SSL *s, PACKET *cipher_suites,
                                 STACK_OF(SSL_CIPHER) **scsvs, int sslv2format,
                                 int fatal);
 void ssl_update_cache(SSL *s, int mode);
+struct ssl_cipher_preference_list_st* ssl_cipher_preference_list_dup(
+        struct ssl_cipher_preference_list_st *cipher_list);
+void ssl_cipher_preference_list_free(
+        struct ssl_cipher_preference_list_st *cipher_list);
+struct ssl_cipher_preference_list_st* ssl_cipher_preference_list_from_ciphers(
+        STACK_OF(SSL_CIPHER) *ciphers);
+struct ssl_cipher_preference_list_st* ssl_get_cipher_preferences(SSL *s);
 __owur int ssl_cipher_get_evp(const SSL_SESSION *s, const EVP_CIPHER **enc,
                               const EVP_MD **md, int *mac_pkey_type,
                               size_t *mac_secret_size, SSL_COMP **comp,
@@ -2316,7 +2360,7 @@ __owur unsigned long ssl3_output_cert_chain(SSL *s, WPACKET *pkt,
                                             CERT_PKEY *cpk);
 __owur const SSL_CIPHER *ssl3_choose_cipher(SSL *ssl,
                                             STACK_OF(SSL_CIPHER) *clnt,
-                                            STACK_OF(SSL_CIPHER) *srvr);
+                                            struct ssl_cipher_preference_list_st *srvr);
 __owur int ssl3_digest_cached_records(SSL *s, int keep);
 __owur int ssl3_new(SSL *s);
 void ssl3_free(SSL *s);
