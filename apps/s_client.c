@@ -367,8 +367,6 @@ static char *ssl_give_srp_client_pwd_cb(SSL *s, void *arg)
 
 #endif
 
-static char *srtp_profiles = NULL;
-
 #ifndef OPENSSL_NO_NEXTPROTONEG
 /* This the context that we pass to next_proto_cb */
 typedef struct tlsextnextprotoctx_st {
@@ -639,7 +637,8 @@ const OPTIONS s_client_options[] = {
      "Disable name checks when matching DANE-EE(3) TLSA records"},
     {"reconnect", OPT_RECONNECT, '-',
      "Drop and re-make the connection with the same Session-ID"},
-    {"showcerts", OPT_SHOWCERTS, '-', "Show all certificates in the chain"},
+    {"showcerts", OPT_SHOWCERTS, '-',
+     "Show all certificates sent by the server"},
     {"debug", OPT_DEBUG, '-', "Extra output"},
     {"msg", OPT_MSG, '-', "Show protocol messages"},
     {"msgfile", OPT_MSGFILE, '>',
@@ -657,8 +656,10 @@ const OPTIONS s_client_options[] = {
     OPT_R_OPTIONS,
     {"sess_out", OPT_SESS_OUT, '>', "File to write SSL session to"},
     {"sess_in", OPT_SESS_IN, '<', "File to read SSL session from"},
+#ifndef OPENSSL_NO_SRTP
     {"use_srtp", OPT_USE_SRTP, 's',
      "Offer SRTP key management with a colon-separated profile list"},
+#endif
     {"keymatexport", OPT_KEYMATEXPORT, 's',
      "Export keying material using label"},
     {"keymatexportlen", OPT_KEYMATEXPORTLEN, 'p',
@@ -933,6 +934,9 @@ int s_client_main(int argc, char **argv)
     char *srppass = NULL;
     int srp_lateuser = 0;
     SRP_ARG srp_arg = { NULL, NULL, 0, 0, 0, 1024 };
+#endif
+#ifndef OPENSSL_NO_SRTP
+    char *srtp_profiles = NULL;
 #endif
 #ifndef OPENSSL_NO_CT
     char *ctlog_file = NULL;
@@ -1420,7 +1424,9 @@ int s_client_main(int argc, char **argv)
             noservername = 1;
             break;
         case OPT_USE_SRTP:
+#ifndef OPENSSL_NO_SRTP
             srtp_profiles = opt_arg();
+#endif
             break;
         case OPT_KEYMATEXPORT:
             keymatexportlabel = opt_arg();
@@ -1669,8 +1675,13 @@ int s_client_main(int argc, char **argv)
         goto end;
     }
 
+    SSL_CTX_clear_mode(ctx, SSL_MODE_AUTO_RETRY);
+
     if (sdebug)
         ssl_ctx_security_debug(ctx, sdebug);
+
+    if (!config_ctx(cctx, ssl_args, ctx))
+        goto end;
 
     if (ssl_config != NULL) {
         if (SSL_CTX_config(ctx, ssl_config) == 0) {
@@ -1681,9 +1692,11 @@ int s_client_main(int argc, char **argv)
         }
     }
 
-    if (SSL_CTX_set_min_proto_version(ctx, min_version) == 0)
+    if (min_version != 0
+        && SSL_CTX_set_min_proto_version(ctx, min_version) == 0)
         goto end;
-    if (SSL_CTX_set_max_proto_version(ctx, max_version) == 0)
+    if (max_version != 0
+        && SSL_CTX_set_max_proto_version(ctx, max_version) == 0)
         goto end;
 
     if (vpmtouched && !SSL_CTX_set1_param(ctx, vpm)) {
@@ -1728,9 +1741,6 @@ int s_client_main(int argc, char **argv)
                    "\n", prog, maxfraglen);
         goto end;
     }
-
-    if (!config_ctx(cctx, ssl_args, ctx))
-        goto end;
 
     if (!ssl_load_stores(ctx, vfyCApath, vfyCAfile, chCApath, chCAfile,
                          crls, crl_download)) {
@@ -2699,8 +2709,7 @@ int s_client_main(int argc, char **argv)
         FD_ZERO(&readfds);
         FD_ZERO(&writefds);
 
-        if ((SSL_version(con) == DTLS1_VERSION) &&
-            DTLSv1_get_timeout(con, &timeout))
+        if (SSL_is_dtls(con) && DTLSv1_get_timeout(con, &timeout))
             timeoutp = &timeout;
         else
             timeoutp = NULL;
@@ -2811,10 +2820,8 @@ int s_client_main(int argc, char **argv)
             }
         }
 
-        if ((SSL_version(con) == DTLS1_VERSION)
-            && DTLSv1_handle_timeout(con) > 0) {
+        if (SSL_is_dtls(con) && DTLSv1_handle_timeout(con) > 0)
             BIO_printf(bio_err, "TIMEOUT occurred\n");
-        }
 
         if (!ssl_pending && FD_ISSET(SSL_get_fd(con), &writefds)) {
             k = SSL_write(con, &(cbuf[cbuf_off]), (unsigned int)cbuf_len);
@@ -3048,19 +3055,6 @@ int s_client_main(int argc, char **argv)
     do_ssl_shutdown(con);
 
     /*
-     * Give the socket time to send its last data before we close it.
-     * No amount of setting SO_LINGER etc on the socket seems to persuade
-     * Windows to send the data before closing the socket...but sleeping
-     * for a short time seems to do it (units in ms)
-     * TODO: Find a better way to do this
-     */
-#if defined(OPENSSL_SYS_WINDOWS)
-    Sleep(50);
-#elif defined(OPENSSL_SYS_CYGWIN)
-    usleep(50000);
-#endif
-
-    /*
      * If we ended with an alert being sent, but still with data in the
      * network buffer to be read, then calling BIO_closesocket() will
      * result in a TCP-RST being sent. On some platforms (notably
@@ -3071,6 +3065,19 @@ int s_client_main(int argc, char **argv)
      * TCP-RST. This seems to allow the peer to read the alert data.
      */
     shutdown(SSL_get_fd(con), 1); /* SHUT_WR */
+    /*
+     * We just said we have nothing else to say, but it doesn't mean that
+     * the other side has nothing. It's even recommended to consume incoming
+     * data. [In testing context this ensures that alerts are passed on...]
+     */
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 500000;  /* some extreme round-trip */
+    do {
+        FD_ZERO(&readfds);
+        openssl_fdset(s, &readfds);
+    } while (select(s + 1, &readfds, NULL, NULL, &timeout) > 0
+             && BIO_read(sbio, sbuf, BUFSIZZ) > 0);
+
     BIO_closesocket(SSL_get_fd(con));
  end:
     if (con != NULL) {

@@ -247,12 +247,23 @@ size_t tls13_final_finish_mac(SSL *s, const char *str, size_t slen,
         goto err;
     }
 
-    if (str == s->method->ssl3_enc->server_finished_label)
-        key = EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, NULL,
-                                   s->server_finished_secret, hashlen);
-    else
-        key = EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, NULL,
-                                   s->client_finished_secret, hashlen);
+    if (str == s->method->ssl3_enc->server_finished_label) {
+        key = EVP_PKEY_new_raw_private_key(EVP_PKEY_HMAC, NULL,
+                                           s->server_finished_secret, hashlen);
+    } else if (SSL_IS_FIRST_HANDSHAKE(s)) {
+        key = EVP_PKEY_new_raw_private_key(EVP_PKEY_HMAC, NULL,
+                                           s->client_finished_secret, hashlen);
+    } else {
+        unsigned char finsecret[EVP_MAX_MD_SIZE];
+
+        if (!tls13_derive_finishedkey(s, ssl_handshake_md(s),
+                                      s->client_app_traffic_secret,
+                                      finsecret, hashlen))
+            goto err;
+
+        key = EVP_PKEY_new_raw_private_key(EVP_PKEY_HMAC, NULL, finsecret,
+                                           hashlen);
+    }
 
     if (key == NULL
             || ctx == NULL
@@ -397,6 +408,7 @@ int tls13_change_cipher_state(SSL *s, int which)
 
         RECORD_LAYER_reset_read_sequence(&s->rlayer);
     } else {
+        s->statem.invalid_enc_write_ctx = 1;
         if (s->enc_write_ctx != NULL) {
             EVP_CIPHER_CTX_reset(s->enc_write_ctx);
         } else {
@@ -406,7 +418,6 @@ int tls13_change_cipher_state(SSL *s, int which)
                          SSL_F_TLS13_CHANGE_CIPHER_STATE, ERR_R_MALLOC_FAILURE);
                 goto err;
             }
-            EVP_CIPHER_CTX_ctrl(s->enc_write_ctx, EVP_CTRL_SET_DRBG, 0, s->drbg);
         }
         ciph_ctx = s->enc_write_ctx;
         iv = s->write_iv;
@@ -491,6 +502,12 @@ int tls13_change_cipher_state(SSL *s, int which)
                                    s->early_exporter_master_secret, hashlen)) {
                 SSLfatal(s, SSL_AD_INTERNAL_ERROR,
                          SSL_F_TLS13_CHANGE_CIPHER_STATE, ERR_R_INTERNAL_ERROR);
+                goto err;
+            }
+
+            if (!ssl_log_secret(s, EARLY_EXPORTER_SECRET_LABEL,
+                                s->early_exporter_master_secret, hashlen)) {
+                /* SSLfatal() already called */
                 goto err;
             }
         } else if (which & SSL3_CC_HANDSHAKE) {
@@ -594,6 +611,12 @@ int tls13_change_cipher_state(SSL *s, int which)
             /* SSLfatal() already called */
             goto err;
         }
+
+        if (!ssl_log_secret(s, EXPORTER_SECRET_LABEL, s->exporter_master_secret,
+                            hashlen)) {
+            /* SSLfatal() already called */
+            goto err;
+        }
     } else if (label == client_application_traffic)
         memcpy(s->client_app_traffic_secret, secret, hashlen);
 
@@ -609,6 +632,7 @@ int tls13_change_cipher_state(SSL *s, int which)
         goto err;
     }
 
+    s->statem.invalid_enc_write_ctx = 0;
     ret = 1;
  err:
     OPENSSL_cleanse(secret, sizeof(secret));
@@ -631,6 +655,7 @@ int tls13_update_key(SSL *s, int sending)
         insecret = s->client_app_traffic_secret;
 
     if (sending) {
+        s->statem.invalid_enc_write_ctx = 1;
         iv = s->write_iv;
         ciph_ctx = s->enc_write_ctx;
         RECORD_LAYER_reset_write_sequence(&s->rlayer);
@@ -651,6 +676,7 @@ int tls13_update_key(SSL *s, int sending)
 
     memcpy(insecret, secret, hashlen);
 
+    s->statem.invalid_enc_write_ctx = 0;
     ret = 1;
  err:
     OPENSSL_cleanse(secret, sizeof(secret));

@@ -151,6 +151,78 @@ static int rand_neg(void)
 }
 
 
+static int test_swap(void)
+{
+    BIGNUM *a = NULL, *b = NULL, *c = NULL, *d = NULL;
+    int top, cond, st = 0;
+
+    if (!TEST_ptr(a = BN_new())
+            || !TEST_ptr(b = BN_new())
+            || !TEST_ptr(c = BN_new())
+            || !TEST_ptr(d = BN_new()))
+        goto err;
+
+    BN_bntest_rand(a, 1024, 1, 0);
+    BN_bntest_rand(b, 1024, 1, 0);
+    BN_copy(c, a);
+    BN_copy(d, b);
+    top = BN_num_bits(a)/BN_BITS2;
+
+    /* regular swap */
+    BN_swap(a, b);
+    if (!equalBN("swap", a, d)
+            || !equalBN("swap", b, c))
+        goto err;
+
+    /* conditional swap: true */
+    cond = 1;
+    BN_consttime_swap(cond, a, b, top);
+    if (!equalBN("cswap true", a, c)
+            || !equalBN("cswap true", b, d))
+        goto err;
+
+    /* conditional swap: false */
+    cond = 0;
+    BN_consttime_swap(cond, a, b, top);
+    if (!equalBN("cswap false", a, c)
+            || !equalBN("cswap false", b, d))
+        goto err;
+
+    /* same tests but checking flag swap */
+    BN_set_flags(a, BN_FLG_CONSTTIME);
+
+    BN_swap(a, b);
+    if (!equalBN("swap, flags", a, d)
+            || !equalBN("swap, flags", b, c)
+            || !TEST_true(BN_get_flags(b, BN_FLG_CONSTTIME))
+            || !TEST_false(BN_get_flags(a, BN_FLG_CONSTTIME)))
+        goto err;
+
+    cond = 1;
+    BN_consttime_swap(cond, a, b, top);
+    if (!equalBN("cswap true, flags", a, c)
+            || !equalBN("cswap true, flags", b, d)
+            || !TEST_true(BN_get_flags(a, BN_FLG_CONSTTIME))
+            || !TEST_false(BN_get_flags(b, BN_FLG_CONSTTIME)))
+        goto err;
+
+    cond = 0;
+    BN_consttime_swap(cond, a, b, top);
+    if (!equalBN("cswap false, flags", a, c)
+            || !equalBN("cswap false, flags", b, d)
+            || !TEST_true(BN_get_flags(a, BN_FLG_CONSTTIME))
+            || !TEST_false(BN_get_flags(b, BN_FLG_CONSTTIME)))
+        goto err;
+
+    st = 1;
+ err:
+    BN_free(a);
+    BN_free(b);
+    BN_free(c);
+    BN_free(d);
+    return st;
+}
+
 static int test_sub(void)
 {
     BIGNUM *a = NULL, *b = NULL, *c = NULL;
@@ -408,9 +480,21 @@ static int test_modexp_mont5(void)
     BN_free(b);
     b = BN_dup(a);
     BN_MONT_CTX_set(mont, n, ctx);
-    BN_mod_mul_montgomery(c, a, a, mont, ctx);
-    BN_mod_mul_montgomery(d, a, b, mont, ctx);
-    if (!TEST_BN_eq(c, d))
+    if (!TEST_true(BN_mod_mul_montgomery(c, a, a, mont, ctx))
+            || !TEST_true(BN_mod_mul_montgomery(d, a, b, mont, ctx))
+            || !TEST_BN_eq(c, d))
+        goto err;
+
+    /* Regression test for bug in BN_from_montgomery_word */
+    BN_hex2bn(&a,
+        "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+        "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+        "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF");
+    BN_hex2bn(&n,
+        "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+        "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF");
+    BN_MONT_CTX_set(mont, n, ctx);
+    if (!TEST_false(BN_mod_mul_montgomery(d, a, a, mont, ctx)))
         goto err;
 
     /* Regression test for bug in rsaz_1024_mul_avx2 */
@@ -2106,6 +2190,7 @@ int setup_tests(void)
         ADD_TEST(test_badmod);
         ADD_TEST(test_expmodzero);
         ADD_TEST(test_smallprime);
+        ADD_TEST(test_swap);
 #ifndef OPENSSL_NO_EC2M
         ADD_TEST(test_gf2m_add);
         ADD_TEST(test_gf2m_mod);

@@ -14,13 +14,13 @@
 #include <openssl/objects.h>
 #include <openssl/x509v3.h>
 #include <openssl/rand.h>
+#include <openssl/rand_drbg.h>
 #include <openssl/ocsp.h>
 #include <openssl/dh.h>
 #include <openssl/engine.h>
 #include <openssl/async.h>
 #include <openssl/ct.h>
 #include "internal/cryptlib.h"
-#include "internal/rand.h"
 #include "internal/refcount.h"
 
 const char SSL_version_str[] = OPENSSL_VERSION_TEXT;
@@ -591,6 +591,7 @@ int SSL_clear(SSL *s)
     s->psksession_id = NULL;
     s->psksession_id_len = 0;
     s->hello_retry_request = 0;
+    s->sent_tickets = 0;
 
     s->error = 0;
     s->hit = 0;
@@ -653,7 +654,9 @@ int SSL_CTX_set_ssl_version(SSL_CTX *ctx, const SSL_METHOD *meth)
 
     ctx->method = meth;
 
-    sk = ssl_create_cipher_list(ctx->method, &(ctx->cipher_list),
+    sk = ssl_create_cipher_list(ctx->method,
+                                ctx->tls13_ciphersuites,
+                                &(ctx->cipher_list),
                                 &(ctx->cipher_list_by_id),
                                 SSL_DEFAULT_CIPHER_LIST, ctx->cert);
     if ((sk == NULL) || (sk_SSL_CIPHER_num(sk) <= 0)) {
@@ -688,20 +691,6 @@ SSL *SSL_new(SSL_CTX *ctx)
         goto err;
     }
 
-    /*
-     * If not using the standard RAND (say for fuzzing), then don't use a
-     * chained DRBG.
-     */
-    if (RAND_get_rand_method() == RAND_OpenSSL()) {
-        s->drbg =
-            RAND_DRBG_new(RAND_DRBG_NID, 0, RAND_DRBG_get0_public());
-        if (s->drbg == NULL
-            || RAND_DRBG_instantiate(s->drbg,
-                                     (const unsigned char *) SSL_version_str,
-                                     sizeof(SSL_version_str) - 1) == 0)
-            goto err;
-    }
-
     RECORD_LAYER_init(&s->rlayer, s);
 
     s->options = ctx->options;
@@ -711,6 +700,12 @@ SSL *SSL_new(SSL_CTX *ctx)
     s->mode = ctx->mode;
     s->max_cert_list = ctx->max_cert_list;
     s->max_early_data = ctx->max_early_data;
+    s->num_tickets = ctx->num_tickets;
+
+    /* Shallow copy of the ciphersuites stack */
+    s->tls13_ciphersuites = sk_SSL_CIPHER_dup(ctx->tls13_ciphersuites);
+    if (s->tls13_ciphersuites == NULL)
+        goto err;
 
     /*
      * Earlier library versions used to copy the pointer to the CERT, not
@@ -1113,71 +1108,6 @@ int SSL_set1_param(SSL *ssl, X509_VERIFY_PARAM *vpm)
     return X509_VERIFY_PARAM_set1(ssl->param, vpm);
 }
 
-void ssl_cipher_preference_list_free(struct ssl_cipher_preference_list_st
-                                     *cipher_list)
-{
-    sk_SSL_CIPHER_free(cipher_list->ciphers);
-    OPENSSL_free(cipher_list->in_group_flags);
-    OPENSSL_free(cipher_list);
-}
-
-struct ssl_cipher_preference_list_st*
-ssl_cipher_preference_list_dup(struct ssl_cipher_preference_list_st
-                               *cipher_list)
-{
-    struct ssl_cipher_preference_list_st* ret = NULL;
-    size_t n = sk_SSL_CIPHER_num(cipher_list->ciphers);
-
-    ret = OPENSSL_malloc(sizeof(struct ssl_cipher_preference_list_st));
-    if (!ret)
-        goto err;
-    ret->ciphers = NULL;
-    ret->in_group_flags = NULL;
-    ret->ciphers = sk_SSL_CIPHER_dup(cipher_list->ciphers);
-    if (!ret->ciphers)
-        goto err;
-    ret->in_group_flags = OPENSSL_malloc(n);
-    if (!ret->in_group_flags)
-        goto err;
-    memcpy(ret->in_group_flags, cipher_list->in_group_flags, n);
-    return ret;
-
-err:
-   if (ret->ciphers)
-       sk_SSL_CIPHER_free(ret->ciphers);
-   if (ret)
-       OPENSSL_free(ret);
-   return NULL;
-}
-
-struct ssl_cipher_preference_list_st*
-ssl_cipher_preference_list_from_ciphers(STACK_OF(SSL_CIPHER) *ciphers)
-{
-    struct ssl_cipher_preference_list_st* ret = NULL;
-    size_t n = sk_SSL_CIPHER_num(ciphers);
-
-    ret = OPENSSL_malloc(sizeof(struct ssl_cipher_preference_list_st));
-    if (!ret)
-        goto err;
-    ret->ciphers = NULL;
-    ret->in_group_flags = NULL;
-    ret->ciphers = sk_SSL_CIPHER_dup(ciphers);
-    if (!ret->ciphers)
-        goto err;
-    ret->in_group_flags = OPENSSL_malloc(n);
-    if (!ret->in_group_flags)
-        goto err;
-    memset(ret->in_group_flags, 0, n);
-    return ret;
-
-err:
-    if (ret->ciphers)
-        sk_SSL_CIPHER_free(ret->ciphers);
-    if (ret)
-        OPENSSL_free(ret);
-    return NULL;
-}
-
 X509_VERIFY_PARAM *SSL_CTX_get0_param(SSL_CTX *ctx)
 {
     return ctx->param;
@@ -1199,7 +1129,6 @@ void SSL_free(SSL *s)
 
     if (s == NULL)
         return;
-
     CRYPTO_DOWN_REF(&s->references, &i, s->lock);
     REF_PRINT_COUNT("SSL", s);
     if (i > 0)
@@ -1219,9 +1148,9 @@ void SSL_free(SSL *s)
     BUF_MEM_free(s->init_buf);
 
     /* add extra stuff */
-    if (s->cipher_list != NULL)
-        ssl_cipher_preference_list_free(s->cipher_list);
+    sk_SSL_CIPHER_free(s->cipher_list);
     sk_SSL_CIPHER_free(s->cipher_list_by_id);
+    sk_SSL_CIPHER_free(s->tls13_ciphersuites);
 
     /* Make the next call work :-) */
     if (s->session != NULL) {
@@ -1278,7 +1207,6 @@ void SSL_free(SSL *s)
     sk_SRTP_PROTECTION_PROFILE_free(s->srtp_profiles);
 #endif
 
-    RAND_DRBG_free(s->drbg);
     CRYPTO_THREAD_lock_free(s->lock);
 
     OPENSSL_free(s);
@@ -2097,6 +2025,9 @@ int SSL_write_early_data(SSL *s, const void *buf, size_t num, size_t *written)
         /* We are a server writing to an unauthenticated client */
         s->early_data_state = SSL_EARLY_DATA_UNAUTH_WRITING;
         ret = SSL_write_ex(s, buf, num, written);
+        /* The buffering BIO is still in place */
+        if (ret)
+            (void)BIO_flush(s->wbio);
         s->early_data_state = early_data_state;
         return ret;
 
@@ -2500,9 +2431,9 @@ STACK_OF(SSL_CIPHER) *SSL_get_ciphers(const SSL *s)
 {
     if (s != NULL) {
         if (s->cipher_list != NULL) {
-            return (s->cipher_list->ciphers);
+            return s->cipher_list;
         } else if ((s->ctx != NULL) && (s->ctx->cipher_list != NULL)) {
-            return (s->ctx->cipher_list->ciphers);
+            return s->ctx->cipher_list;
         }
     }
     return NULL;
@@ -2576,8 +2507,8 @@ const char *SSL_get_cipher_list(const SSL *s, int n)
  * preference */
 STACK_OF(SSL_CIPHER) *SSL_CTX_get_ciphers(const SSL_CTX *ctx)
 {
-    if (ctx != NULL && ctx->cipher_list != NULL)
-        return ctx->cipher_list->ciphers;
+    if (ctx != NULL)
+        return ctx->cipher_list;
     return NULL;
 }
 
@@ -2586,8 +2517,9 @@ int SSL_CTX_set_cipher_list(SSL_CTX *ctx, const char *str)
 {
     STACK_OF(SSL_CIPHER) *sk;
 
-    sk = ssl_create_cipher_list(ctx->method, &ctx->cipher_list,
-                                &ctx->cipher_list_by_id, str, ctx->cert);
+    sk = ssl_create_cipher_list(ctx->method, ctx->tls13_ciphersuites,
+                                &ctx->cipher_list, &ctx->cipher_list_by_id, str,
+                                ctx->cert);
     /*
      * ssl_create_cipher_list may return an empty stack if it was unable to
      * find a cipher matching the given rule string (for example if the rule
@@ -2609,8 +2541,9 @@ int SSL_set_cipher_list(SSL *s, const char *str)
 {
     STACK_OF(SSL_CIPHER) *sk;
 
-    sk = ssl_create_cipher_list(s->ctx->method, &s->cipher_list,
-                                &s->cipher_list_by_id, str, s->cert);
+    sk = ssl_create_cipher_list(s->ctx->method, s->tls13_ciphersuites,
+                                &s->cipher_list, &s->cipher_list_by_id, str,
+                                s->cert);
     /* see comment in SSL_CTX_set_cipher_list */
     if (sk == NULL)
         return 0;
@@ -2621,28 +2554,37 @@ int SSL_set_cipher_list(SSL *s, const char *str)
     return 1;
 }
 
-char *SSL_get_shared_ciphers(const SSL *s, char *buf, int len)
+char *SSL_get_shared_ciphers(const SSL *s, char *buf, int size)
 {
     char *p;
-    STACK_OF(SSL_CIPHER) *sk;
+    STACK_OF(SSL_CIPHER) *clntsk, *srvrsk;
     const SSL_CIPHER *c;
     int i;
 
-    if ((s->session == NULL) || (s->session->ciphers == NULL) || (len < 2))
+    if (!s->server
+            || s->session == NULL
+            || s->session->ciphers == NULL
+            || size < 2)
         return NULL;
 
     p = buf;
-    sk = s->session->ciphers;
-
-    if (sk_SSL_CIPHER_num(sk) == 0)
+    clntsk = s->session->ciphers;
+    srvrsk = SSL_get_ciphers(s);
+    if (clntsk == NULL || srvrsk == NULL)
         return NULL;
 
-    for (i = 0; i < sk_SSL_CIPHER_num(sk); i++) {
+    if (sk_SSL_CIPHER_num(clntsk) == 0 || sk_SSL_CIPHER_num(srvrsk) == 0)
+        return NULL;
+
+    for (i = 0; i < sk_SSL_CIPHER_num(clntsk); i++) {
         int n;
 
-        c = sk_SSL_CIPHER_value(sk, i);
+        c = sk_SSL_CIPHER_value(clntsk, i);
+        if (sk_SSL_CIPHER_find(srvrsk, c) < 0)
+            continue;
+
         n = strlen(c->name);
-        if (n + 1 > len) {
+        if (n + 1 > size) {
             if (p != buf)
                 --p;
             *p = '\0';
@@ -2651,7 +2593,7 @@ char *SSL_get_shared_ciphers(const SSL *s, char *buf, int len)
         strcpy(p, c->name);
         p += n;
         *(p++) = ':';
-        len -= n + 1;
+        size -= n + 1;
     }
     p[-1] = '\0';
     return buf;
@@ -2954,6 +2896,7 @@ SSL_CTX *SSL_CTX_new(const SSL_METHOD *meth)
     ret->method = meth;
     ret->min_proto_version = 0;
     ret->max_proto_version = 0;
+    ret->mode = SSL_MODE_AUTO_RETRY;
     ret->session_cache_mode = SSL_SESS_CACHE_SERVER;
     ret->session_cache_size = SSL_SESSION_CACHE_MAX_SIZE_DEFAULT;
     /* We take the system default. */
@@ -2981,10 +2924,15 @@ SSL_CTX *SSL_CTX_new(const SSL_METHOD *meth)
     if (ret->ctlog_store == NULL)
         goto err;
 #endif
+
+    if (!SSL_CTX_set_ciphersuites(ret, TLS_DEFAULT_CIPHERSUITES))
+        goto err;
+
     if (!ssl_create_cipher_list(ret->method,
+                                ret->tls13_ciphersuites,
                                 &ret->cipher_list, &ret->cipher_list_by_id,
                                 SSL_DEFAULT_CIPHER_LIST, ret->cert)
-        || sk_SSL_CIPHER_num(ret->cipher_list->ciphers) <= 0) {
+        || sk_SSL_CIPHER_num(ret->cipher_list) <= 0) {
         SSLerr(SSL_F_SSL_CTX_NEW, SSL_R_LIBRARY_HAS_NO_CIPHERS);
         goto err2;
     }
@@ -3008,6 +2956,9 @@ SSL_CTX *SSL_CTX_new(const SSL_METHOD *meth)
     if (!CRYPTO_new_ex_data(CRYPTO_EX_INDEX_SSL_CTX, ret, &ret->ex_data))
         goto err;
 
+    if ((ret->ext.secure = OPENSSL_secure_zalloc(sizeof(*ret->ext.secure))) == NULL)
+        goto err;
+
     /* No compression for DTLS */
     if (!(meth->ssl3_enc->enc_flags & SSL_ENC_FLAG_DTLS))
         ret->comp_methods = SSL_COMP_get_compression_methods();
@@ -3018,13 +2969,13 @@ SSL_CTX *SSL_CTX_new(const SSL_METHOD *meth)
     /* Setup RFC5077 ticket keys */
     if ((RAND_bytes(ret->ext.tick_key_name,
                     sizeof(ret->ext.tick_key_name)) <= 0)
-        || (RAND_bytes(ret->ext.tick_hmac_key,
-                       sizeof(ret->ext.tick_hmac_key)) <= 0)
-        || (RAND_bytes(ret->ext.tick_aes_key,
-                       sizeof(ret->ext.tick_aes_key)) <= 0))
+        || (RAND_priv_bytes(ret->ext.secure->tick_hmac_key,
+                       sizeof(ret->ext.secure->tick_hmac_key)) <= 0)
+        || (RAND_priv_bytes(ret->ext.secure->tick_aes_key,
+                       sizeof(ret->ext.secure->tick_aes_key)) <= 0))
         ret->options |= SSL_OP_NO_TICKET;
 
-    if (RAND_bytes(ret->ext.cookie_hmac_key,
+    if (RAND_priv_bytes(ret->ext.cookie_hmac_key,
                    sizeof(ret->ext.cookie_hmac_key)) <= 0)
         goto err;
 
@@ -3085,6 +3036,11 @@ SSL_CTX *SSL_CTX_new(const SSL_METHOD *meth)
      */
     ret->max_early_data = 0;
 
+    /* By default we send two session tickets automatically in TLSv1.3 */
+    ret->num_tickets = 2;
+
+    ssl_ctx_system_config(ret);
+
     return ret;
  err:
     SSLerr(SSL_F_SSL_CTX_NEW, ERR_R_MALLOC_FAILURE);
@@ -3139,8 +3095,9 @@ void SSL_CTX_free(SSL_CTX *a)
 #ifndef OPENSSL_NO_CT
     CTLOG_STORE_free(a->ctlog_store);
 #endif
-    ssl_cipher_preference_list_free(a->cipher_list);
+    sk_SSL_CIPHER_free(a->cipher_list);
     sk_SSL_CIPHER_free(a->cipher_list_by_id);
+    sk_SSL_CIPHER_free(a->tls13_ciphersuites);
     ssl_cert_free(a->cert);
     sk_X509_NAME_pop_free(a->ca_names, X509_NAME_free);
     sk_X509_pop_free(a->extra_certs, X509_free);
@@ -3160,6 +3117,7 @@ void SSL_CTX_free(SSL_CTX *a)
     OPENSSL_free(a->ext.supportedgroups);
 #endif
     OPENSSL_free(a->ext.alpn);
+    OPENSSL_secure_free(a->ext.secure);
 
     CRYPTO_THREAD_lock_free(a->lock);
 
@@ -3393,15 +3351,48 @@ void ssl_update_cache(SSL *s, int mode)
     if (s->session->session_id_length == 0)
         return;
 
+    /*
+     * If sid_ctx_length is 0 there is no specific application context
+     * associated with this session, so when we try to resume it and
+     * SSL_VERIFY_PEER is requested to verify the client identity, we have no
+     * indication that this is actually a session for the proper application
+     * context, and the *handshake* will fail, not just the resumption attempt.
+     * Do not cache (on the server) these sessions that are not resumable
+     * (clients can set SSL_VERIFY_PEER without needing a sid_ctx set).
+     */
+    if (s->server && s->session->sid_ctx_length == 0
+            && (s->verify_mode & SSL_VERIFY_PEER) != 0)
+        return;
+
     i = s->session_ctx->session_cache_mode;
     if ((i & mode) != 0
-        && (!s->hit || SSL_IS_TLS13(s))
-        && ((i & SSL_SESS_CACHE_NO_INTERNAL_STORE) != 0
-            || SSL_CTX_add_session(s->session_ctx, s->session))
-        && s->session_ctx->new_session_cb != NULL) {
-        SSL_SESSION_up_ref(s->session);
-        if (!s->session_ctx->new_session_cb(s, s->session))
-            SSL_SESSION_free(s->session);
+        && (!s->hit || SSL_IS_TLS13(s))) {
+        /*
+         * Add the session to the internal cache. In server side TLSv1.3 we
+         * normally don't do this because its a full stateless ticket with only
+         * a dummy session id so there is no reason to cache it, unless:
+         * - we are doing early_data, in which case we cache so that we can
+         *   detect replays
+         * - the application has set a remove_session_cb so needs to know about
+         *   session timeout events
+         */
+        if ((i & SSL_SESS_CACHE_NO_INTERNAL_STORE) == 0
+                && (!SSL_IS_TLS13(s)
+                    || !s->server
+                    || s->max_early_data > 0
+                    || s->session_ctx->remove_session_cb != NULL))
+            SSL_CTX_add_session(s->session_ctx, s->session);
+
+        /*
+         * Add the session to the external cache. We do this even in server side
+         * TLSv1.3 without early data because some applications just want to
+         * know about the creation of a session and aren't doing a full cache.
+         */
+        if (s->session_ctx->new_session_cb != NULL) {
+            SSL_SESSION_up_ref(s->session);
+            if (!s->session_ctx->new_session_cb(s, s->session))
+                SSL_SESSION_free(s->session);
+        }
     }
 
     /* auto flush every 255 connections */
@@ -3756,15 +3747,13 @@ SSL *SSL_dup(SSL *s)
 
     /* dup the cipher_list and cipher_list_by_id stacks */
     if (s->cipher_list != NULL) {
-        ret->cipher_list = ssl_cipher_preference_list_dup(s->cipher_list);
-        if (ret->cipher_list == NULL)
+        if ((ret->cipher_list = sk_SSL_CIPHER_dup(s->cipher_list)) == NULL)
             goto err;
     }
-    if (s->cipher_list_by_id != NULL) {
-        ret->cipher_list_by_id = sk_SSL_CIPHER_dup(s->cipher_list_by_id);
-        if (ret->cipher_list_by_id == NULL)
+    if (s->cipher_list_by_id != NULL)
+        if ((ret->cipher_list_by_id = sk_SSL_CIPHER_dup(s->cipher_list_by_id))
+            == NULL)
             goto err;
-    }
 
     /* Dup the client_CA list */
     if (s->ca_names != NULL) {
@@ -3894,8 +3883,6 @@ int ssl_free_wbio_buffer(SSL *s)
         return 1;
 
     s->wbio = BIO_pop(s->wbio);
-    if (!ossl_assert(s->wbio != NULL))
-        return 0;
     BIO_free(s->bbio);
     s->bbio = NULL;
 
@@ -4351,6 +4338,30 @@ int SSL_set_block_padding(SSL *ssl, size_t block_size)
     else
         return 0;
     return 1;
+}
+
+int SSL_set_num_tickets(SSL *s, size_t num_tickets)
+{
+    s->num_tickets = num_tickets;
+
+    return 1;
+}
+
+size_t SSL_get_num_tickets(SSL *s)
+{
+    return s->num_tickets;
+}
+
+int SSL_CTX_set_num_tickets(SSL_CTX *ctx, size_t num_tickets)
+{
+    ctx->num_tickets = num_tickets;
+
+    return 1;
+}
+
+size_t SSL_CTX_get_num_tickets(SSL_CTX *ctx)
+{
+    return ctx->num_tickets;
 }
 
 /*
@@ -5005,9 +5016,11 @@ int SSL_client_hello_get1_extensions_present(SSL *s, int **out, size_t *outlen)
         if (ext->present)
             num++;
     }
-    present = OPENSSL_malloc(sizeof(*present) * num);
-    if (present == NULL)
+    if ((present = OPENSSL_malloc(sizeof(*present) * num)) == NULL) {
+        SSLerr(SSL_F_SSL_CLIENT_HELLO_GET1_EXTENSIONS_PRESENT,
+               ERR_R_MALLOC_FAILURE);
         return 0;
+    }
     for (i = 0; i < s->clienthello->pre_proc_exts_len; i++) {
         ext = s->clienthello->pre_proc_exts + i;
         if (ext->present) {
@@ -5354,28 +5367,6 @@ int SSL_set_max_early_data(SSL *s, uint32_t max_early_data)
 uint32_t SSL_get_max_early_data(const SSL *s)
 {
     return s->max_early_data;
-}
-
-int ssl_randbytes(SSL *s, unsigned char *rnd, size_t size)
-{
-    if (s->drbg != NULL) {
-        /*
-         * Currently, it's the duty of the caller to serialize the generate
-         * requests to the DRBG. So formally we have to check whether
-         * s->drbg->lock != NULL and take the lock if this is the case.
-         * However, this DRBG is unique to a given SSL object, and we already
-         * require that SSL objects are only accessed by a single thread at
-         * a given time. Also, SSL DRBGs have no child DRBG, so there is
-         * no risk that this DRBG is accessed by a child DRBG in parallel
-         * for reseeding.  As such, we can rely on the application's
-         * serialization of SSL accesses for the needed concurrency protection
-         * here.
-         */
-        return RAND_DRBG_bytes(s->drbg, rnd, size);
-    }
-    if (size > INT_MAX)
-        return 0;
-    return RAND_bytes(rnd, size);
 }
 
 __owur unsigned int ssl_get_max_send_fragment(const SSL *ssl)

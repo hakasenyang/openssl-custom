@@ -33,6 +33,7 @@
  */
 #define MAX_CONF_VALUE_LENGTH       65536
 
+static int is_keytype(const CONF *conf, char c, unsigned short type);
 static char *eat_ws(CONF *conf, char *p);
 static void trim_ws(CONF *conf, char *start);
 static char *eat_alpha_numeric(CONF *conf, char *p);
@@ -84,12 +85,12 @@ static CONF_METHOD WIN32_method = {
     def_load
 };
 
-CONF_METHOD *NCONF_default()
+CONF_METHOD *NCONF_default(void)
 {
     return &default_method;
 }
 
-CONF_METHOD *NCONF_WIN32()
+CONF_METHOD *NCONF_WIN32(void)
 {
     return &WIN32_method;
 }
@@ -558,7 +559,7 @@ static int str_copy(CONF *conf, char *section, char **pto, char *from)
                 s++;
             cp = section;
             e = np = s;
-            while (IS_ALPHA_NUMERIC(conf, *e))
+            while (IS_ALNUM(conf, *e))
                 e++;
             if ((e[0] == ':') && (e[1] == ':')) {
                 cp = np;
@@ -567,7 +568,7 @@ static int str_copy(CONF *conf, char *section, char **pto, char *from)
                 *rrp = '\0';
                 e += 2;
                 np = e;
-                while (IS_ALPHA_NUMERIC(conf, *e))
+                while (IS_ALNUM(conf, *e))
                     e++;
             }
             r = *e;
@@ -732,6 +733,30 @@ static BIO *get_next_file(const char *path, OPENSSL_DIR_CTX **dirctx)
 }
 #endif
 
+static int is_keytype(const CONF *conf, char c, unsigned short type)
+{
+    const unsigned short * keytypes = (const unsigned short *) conf->meth_data;
+    unsigned char key = (unsigned char)c;
+
+#ifdef CHARSET_EBCDIC
+# if CHAR_BIT > 8
+    if (key > 255) {
+        /* key is out of range for os_toascii table */
+        return 0;
+    }
+# endif
+    /* convert key from ebcdic to ascii */
+    key = os_toascii[key];
+#endif
+
+    if (key > 127) {
+        /* key is not a seven bit ascii character */
+        return 0;
+    }
+
+    return (keytypes[key] & type) ? 1 : 0;
+}
+
 static char *eat_ws(CONF *conf, char *p)
 {
     while (IS_WS(conf, *p) && (!IS_EOF(conf, *p)))
@@ -759,7 +784,7 @@ static char *eat_alpha_numeric(CONF *conf, char *p)
             p = scan_esc(conf, p);
             continue;
         }
-        if (!IS_ALPHA_NUMERIC_PUNCT(conf, *p))
+        if (!IS_ALNUM_PUNCT(conf, *p))
             return p;
         p++;
     }

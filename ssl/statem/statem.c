@@ -123,7 +123,7 @@ void ossl_statem_fatal(SSL *s, int al, int func, int reason, const char *file,
     s->statem.in_init = 1;
     s->statem.state = MSG_FLOW_ERROR;
     ERR_put_error(ERR_LIB_SSL, func, reason, file, line);
-    if (al != SSL_AD_NO_ALERT)
+    if (al != SSL_AD_NO_ALERT && !s->statem.invalid_enc_write_ctx)
         ssl3_send_alert(s, SSL3_AL_FATAL, al);
 }
 
@@ -589,10 +589,8 @@ static SUB_STATE_RETURN read_state_machine(SSL *s)
              * Validate that we are allowed to move to the new state and move
              * to that state if so
              */
-            if (!transition(s, mt)) {
-                check_fatal(s, SSL_F_READ_STATE_MACHINE);
+            if (!transition(s, mt))
                 return SUB_STATE_ERROR;
-            }
 
             if (s->s3->tmp.message_size > max_message_size(s)) {
                 SSLfatal(s, SSL_AD_ILLEGAL_PARAMETER, SSL_F_READ_STATE_MACHINE,

@@ -550,7 +550,7 @@ struct ssl_session_st {
     const SSL_CIPHER *cipher;
     unsigned long cipher_id;    /* when ASN.1 loaded, this needs to be used to
                                  * load the 'cipher' structure */
-    STACK_OF(SSL_CIPHER) *ciphers; /* shared ciphers? */
+    STACK_OF(SSL_CIPHER) *ciphers; /* ciphers offered by the client */
     CRYPTO_EX_DATA ex_data;     /* application specific data */
     /*
      * These are used to make removal of session-ids more efficient and to
@@ -733,50 +733,21 @@ DEFINE_LHASH_OF(SSL_SESSION);
 /* Needed in ssl_cert.c */
 DEFINE_LHASH_OF(X509_NAME);
 
-# define TLSEXT_KEYNAME_LENGTH 16
+# define TLSEXT_KEYNAME_LENGTH  16
+# define TLSEXT_TICK_KEY_LENGTH 32
 
-/* ssl_cipher_preference_list_st contains a list of SSL_CIPHERs with
- * equal-preference groups. For TLS clients, the groups are moot because the
- * server picks the cipher and groups cannot be expressed on the wire. However,
- * for servers, the equal-preference groups allow the client's preferences to
- * be partially respected. (This only has an effect with
- * SSL_OP_CIPHER_SERVER_PREFERENCE).
- *
- * The equal-preference groups are expressed by grouping SSL_CIPHERs together.
- * All elements of a group have the same priority: no ordering is expressed
- * within a group.
- *
- * The values in |ciphers| are in one-to-one correspondence with
- * |in_group_flags|. (That is, sk_SSL_CIPHER_num(ciphers) is the number of
- * bytes in |in_group_flags|.) The bytes in |in_group_flags| are either 1, to
- * indicate that the corresponding SSL_CIPHER is not the last element of a
- * group, or 0 to indicate that it is.
- *
- * For example, if |in_group_flags| contains all zeros then that indicates a
- * traditional, fully-ordered preference. Every SSL_CIPHER is the last element
- * of the group (i.e. they are all in a one-element group).
- *
- * For a more complex example, consider:
- *   ciphers:        A  B  C  D  E  F
- *   in_group_flags: 1  1  0  0  1  0
- *
- * That would express the following, order:
- *
- *    A         E
- *    B -> D -> F
- *    C
- */
-struct ssl_cipher_preference_list_st {
-   STACK_OF(SSL_CIPHER) *ciphers;
-   uint8_t *in_group_flags;
-};
-
+typedef struct ssl_ctx_ext_secure_st {
+    unsigned char tick_hmac_key[TLSEXT_TICK_KEY_LENGTH];
+    unsigned char tick_aes_key[TLSEXT_TICK_KEY_LENGTH];
+} SSL_CTX_EXT_SECURE;
 
 struct ssl_ctx_st {
     const SSL_METHOD *method;
-    struct ssl_cipher_preference_list_st *cipher_list;
+    STACK_OF(SSL_CIPHER) *cipher_list;
     /* same as above but sorted for lookup */
     STACK_OF(SSL_CIPHER) *cipher_list_by_id;
+    /* TLSv1.3 specific ciphersuites */
+    STACK_OF(SSL_CIPHER) *tls13_ciphersuites;
     struct x509_store_st /* X509_STORE */ *cert_store;
     LHASH_OF(SSL_SESSION) *sessions;
     /*
@@ -962,8 +933,7 @@ struct ssl_ctx_st {
         void *servername_arg;
         /* RFC 4507 session ticket keys */
         unsigned char tick_key_name[TLSEXT_KEYNAME_LENGTH];
-        unsigned char tick_hmac_key[32];
-        unsigned char tick_aes_key[32];
+        SSL_CTX_EXT_SECURE *secure;
         /* Callback to support customisation of ticket key setting */
         int (*ticket_key_cb) (SSL *ssl,
                               unsigned char *name, unsigned char *iv,
@@ -1049,8 +1019,10 @@ struct ssl_ctx_st {
     /* Shared DANE context */
     struct dane_ctx_st dane;
 
+# ifndef OPENSSL_NO_SRTP
     /* SRTP profiles we are willing to do from RFC 5764 */
     STACK_OF(SRTP_PROTECTION_PROFILE) *srtp_profiles;
+# endif
     /*
      * Callback for disabling session caching and ticket support on a session
      * basis, depending on the chosen cipher.
@@ -1077,6 +1049,9 @@ struct ssl_ctx_st {
     SSL_CTX_generate_session_ticket_fn generate_ticket_cb;
     SSL_CTX_decrypt_session_ticket_fn decrypt_ticket_cb;
     void *ticket_cb_data;
+
+    /* The number of TLS1.3 tickets to automatically send */
+    size_t num_tickets;
 };
 
 struct ssl_st {
@@ -1085,6 +1060,8 @@ struct ssl_st {
      * DTLS1_VERSION)
      */
     int version;
+    /* TODO(TLS1.3): Remove this before release */
+    int version_draft;
     /* SSLv3 */
     const SSL_METHOD *method;
     /*
@@ -1143,8 +1120,10 @@ struct ssl_st {
     /* Per connection DANE state */
     SSL_DANE dane;
     /* crypto */
-    struct ssl_cipher_preference_list_st *cipher_list;
+    STACK_OF(SSL_CIPHER) *cipher_list;
     STACK_OF(SSL_CIPHER) *cipher_list_by_id;
+    /* TLSv1.3 specific ciphersuites */
+    STACK_OF(SSL_CIPHER) *tls13_ciphersuites;
     /*
      * These are the ones being used, the ones in SSL_SESSION are the ones to
      * be 'copied' into these ones
@@ -1386,10 +1365,12 @@ struct ssl_st {
     int scts_parsed;
 # endif
     SSL_CTX *session_ctx;       /* initial ctx, used to store sessions */
+# ifndef OPENSSL_NO_SRTP
     /* What we'll do */
     STACK_OF(SRTP_PROTECTION_PROFILE) *srtp_profiles;
     /* What's been chosen */
     SRTP_PROTECTION_PROFILE *srtp_profile;
+# endif
     /*-
      * 1 if we are renegotiating.
      * 2 if we are a server and are inside a handshake
@@ -1441,6 +1422,11 @@ struct ssl_st {
 
     CRYPTO_RWLOCK *lock;
     RAND_DRBG *drbg;
+
+    /* The number of TLS1.3 tickets to automatically send */
+    size_t num_tickets;
+    /* The number of TLS1.3 tickets actually sent so far */
+    size_t sent_tickets;
 };
 
 /*
@@ -2235,24 +2221,19 @@ __owur int ssl_cipher_id_cmp(const SSL_CIPHER *a, const SSL_CIPHER *b);
 DECLARE_OBJ_BSEARCH_GLOBAL_CMP_FN(SSL_CIPHER, SSL_CIPHER, ssl_cipher_id);
 __owur int ssl_cipher_ptr_id_cmp(const SSL_CIPHER *const *ap,
                                  const SSL_CIPHER *const *bp);
-__owur STACK_OF(SSL_CIPHER) *ssl_create_cipher_list(const SSL_METHOD *meth,
-                                                    struct ssl_cipher_preference_list_st **pref,
-                                                    STACK_OF(SSL_CIPHER) **sorted,
+__owur int set_ciphersuites(STACK_OF(SSL_CIPHER) **currciphers, const char *str);
+__owur STACK_OF(SSL_CIPHER) *ssl_create_cipher_list(const SSL_METHOD *ssl_method,
+                                                    STACK_OF(SSL_CIPHER) *tls13_ciphersuites,
+                                                    STACK_OF(SSL_CIPHER) **cipher_list,
+                                                    STACK_OF(SSL_CIPHER) **cipher_list_by_id,
                                                     const char *rule_str,
-                                                                CERT *c);
+                                                    CERT *c);
 __owur int ssl_cache_cipherlist(SSL *s, PACKET *cipher_suites, int sslv2format);
 __owur int bytes_to_cipher_list(SSL *s, PACKET *cipher_suites,
                                 STACK_OF(SSL_CIPHER) **skp,
                                 STACK_OF(SSL_CIPHER) **scsvs, int sslv2format,
                                 int fatal);
 void ssl_update_cache(SSL *s, int mode);
-struct ssl_cipher_preference_list_st* ssl_cipher_preference_list_dup(
-        struct ssl_cipher_preference_list_st *cipher_list);
-void ssl_cipher_preference_list_free(
-        struct ssl_cipher_preference_list_st *cipher_list);
-struct ssl_cipher_preference_list_st* ssl_cipher_preference_list_from_ciphers(
-        STACK_OF(SSL_CIPHER) *ciphers);
-struct ssl_cipher_preference_list_st* ssl_get_cipher_preferences(SSL *s);
 __owur int ssl_cipher_get_evp(const SSL_SESSION *s, const EVP_CIPHER **enc,
                               const EVP_MD **md, int *mac_pkey_type,
                               size_t *mac_secret_size, SSL_COMP **comp,
@@ -2277,7 +2258,6 @@ __owur int ssl_build_cert_chain(SSL *s, SSL_CTX *ctx, int flags);
 __owur int ssl_cert_set_cert_store(CERT *c, X509_STORE *store, int chain,
                                    int ref);
 
-__owur int ssl_randbytes(SSL *s, unsigned char *buf, size_t num);
 __owur int ssl_security(const SSL *s, int op, int bits, int nid, void *other);
 __owur int ssl_ctx_security(const SSL_CTX *ctx, int op, int bits, int nid,
                             void *other);
@@ -2294,7 +2274,7 @@ __owur int ssl_get_server_cert_serverinfo(SSL *s,
                                           size_t *serverinfo_length);
 void ssl_set_masks(SSL *s);
 __owur STACK_OF(SSL_CIPHER) *ssl_get_ciphers_by_id(SSL *s);
-__owur int ssl_verify_alarm_type(long type);
+__owur int ssl_x509err2alert(int type);
 void ssl_sort_cipher_list(void);
 int ssl_load_ciphers(void);
 __owur int ssl_fill_hello_random(SSL *s, int server, unsigned char *field,
@@ -2335,8 +2315,8 @@ void ssl3_free_digest_list(SSL *s);
 __owur unsigned long ssl3_output_cert_chain(SSL *s, WPACKET *pkt,
                                             CERT_PKEY *cpk);
 __owur const SSL_CIPHER *ssl3_choose_cipher(SSL *ssl,
-                                    STACK_OF(SSL_CIPHER) *clnt,
-                                    struct ssl_cipher_preference_list_st *srvr);
+                                            STACK_OF(SSL_CIPHER) *clnt,
+                                            STACK_OF(SSL_CIPHER) *srvr);
 __owur int ssl3_digest_cached_records(SSL *s, int keep);
 __owur int ssl3_new(SSL *s);
 void ssl3_free(SSL *s);
@@ -2485,7 +2465,7 @@ SSL_COMP *ssl3_comp_find(STACK_OF(SSL_COMP) *sk, int n);
 #  ifndef OPENSSL_NO_EC
 
 __owur const TLS_GROUP_INFO *tls1_group_id_lookup(uint16_t curve_id);
-__owur int tls1_check_group_id(SSL *s, uint16_t group_id);
+__owur int tls1_check_group_id(SSL *s, uint16_t group_id, int check_own_curves);
 __owur uint16_t tls1_shared_group(SSL *s, int nmatch);
 __owur int tls1_set_groups(uint16_t **pext, size_t *pextlen,
                            int *curves, size_t ncurves);
@@ -2504,9 +2484,9 @@ void tls1_get_supported_groups(SSL *s, const uint16_t **pgroups,
 
 __owur int tls1_set_server_sigalgs(SSL *s);
 
-__owur SSL_TICKET_RETURN tls_get_ticket_from_client(SSL *s, CLIENTHELLO_MSG *hello,
+__owur SSL_TICKET_STATUS tls_get_ticket_from_client(SSL *s, CLIENTHELLO_MSG *hello,
                                                     SSL_SESSION **ret);
-__owur SSL_TICKET_RETURN tls_decrypt_ticket(SSL *s, const unsigned char *etick,
+__owur SSL_TICKET_STATUS tls_decrypt_ticket(SSL *s, const unsigned char *etick,
                                             size_t eticklen,
                                             const unsigned char *sess_id,
                                             size_t sesslen, SSL_SESSION **psess);
@@ -2585,6 +2565,8 @@ __owur int ssl_log_secret(SSL *ssl, const char *label,
 #define SERVER_HANDSHAKE_LABEL "SERVER_HANDSHAKE_TRAFFIC_SECRET"
 #define CLIENT_APPLICATION_LABEL "CLIENT_TRAFFIC_SECRET_0"
 #define SERVER_APPLICATION_LABEL "SERVER_TRAFFIC_SECRET_0"
+#define EARLY_EXPORTER_SECRET_LABEL "EARLY_EXPORTER_SECRET"
+#define EXPORTER_SECRET_LABEL "EXPORTER_SECRET"
 
 /* s3_cbc.c */
 __owur char ssl3_cbc_record_digest_supported(const EVP_MD_CTX *ctx);
@@ -2627,6 +2609,9 @@ __owur int custom_exts_copy_flags(custom_ext_methods *dst,
 void custom_exts_free(custom_ext_methods *exts);
 
 void ssl_comp_free_compression_methods_int(void);
+
+/* ssl_mcnf.c */
+void ssl_ctx_system_config(SSL_CTX *ctx);
 
 # else /* OPENSSL_UNIT_TEST */
 

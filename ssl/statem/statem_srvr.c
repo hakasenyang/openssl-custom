@@ -277,6 +277,20 @@ int ossl_statem_server_read_transition(SSL *s, int mt)
 
  err:
     /* No valid transition found */
+    if (SSL_IS_DTLS(s) && mt == SSL3_MT_CHANGE_CIPHER_SPEC) {
+        BIO *rbio;
+
+        /*
+         * CCS messages don't have a message sequence number so this is probably
+         * because of an out-of-order CCS. We'll just drop it.
+         */
+        s->init_num = 0;
+        s->rwstate = SSL_READING;
+        rbio = SSL_get_rbio(s);
+        BIO_clear_retry_flags(rbio);
+        BIO_set_retry_read(rbio);
+        return 0;
+    }
     SSLfatal(s, SSL3_AD_UNEXPECTED_MESSAGE,
              SSL_F_OSSL_STATEM_SERVER_READ_TRANSITION,
              SSL_R_UNEXPECTED_MESSAGE);
@@ -466,15 +480,23 @@ static WRITE_TRAN ossl_statem_server13_write_transition(SSL *s)
     case TLS_ST_SR_FINISHED:
         /*
          * Technically we have finished the handshake at this point, but we're
-         * going to remain "in_init" for now and write out the session ticket
+         * going to remain "in_init" for now and write out any session tickets
          * immediately.
-         * TODO(TLS1.3): Perhaps we need to be able to control this behaviour
-         * and give the application the opportunity to delay sending the
-         * session ticket?
          */
-        if (s->post_handshake_auth == SSL_PHA_REQUESTED)
+        if (s->post_handshake_auth == SSL_PHA_REQUESTED) {
             s->post_handshake_auth = SSL_PHA_EXT_RECEIVED;
-        st->hand_state = TLS_ST_SW_SESSION_TICKET;
+        } else if (!s->ext.ticket_expected) {
+            /*
+             * If we're not going to renew the ticket then we just finish the
+             * handshake at this point.
+             */
+            st->hand_state = TLS_ST_OK;
+            return WRITE_TRAN_CONTINUE;
+        }
+        if (s->num_tickets > s->sent_tickets)
+            st->hand_state = TLS_ST_SW_SESSION_TICKET;
+        else
+            st->hand_state = TLS_ST_OK;
         return WRITE_TRAN_CONTINUE;
 
     case TLS_ST_SR_KEY_UPDATE:
@@ -485,8 +507,18 @@ static WRITE_TRAN ossl_statem_server13_write_transition(SSL *s)
         /* Fall through */
 
     case TLS_ST_SW_KEY_UPDATE:
-    case TLS_ST_SW_SESSION_TICKET:
         st->hand_state = TLS_ST_OK;
+        return WRITE_TRAN_CONTINUE;
+
+    case TLS_ST_SW_SESSION_TICKET:
+        /* In a resumption we only ever send a maximum of one new ticket.
+         * Following an initial handshake we send the number of tickets we have
+         * been configured for.
+         */
+        if (s->hit || s->num_tickets <= s->sent_tickets) {
+            /* We've written enough tickets out. */
+            st->hand_state = TLS_ST_OK;
+        }
         return WRITE_TRAN_CONTINUE;
     }
 }
@@ -679,7 +711,7 @@ WORK_STATE ossl_statem_server_pre_work(SSL *s, WORK_STATE wst)
         return WORK_FINISHED_CONTINUE;
 
     case TLS_ST_SW_SESSION_TICKET:
-        if (SSL_IS_TLS13(s)) {
+        if (SSL_IS_TLS13(s) && s->sent_tickets == 0) {
             /*
              * Actually this is the end of the handshake, but we're going
              * straight into writing the session ticket out. So we finish off
@@ -1676,7 +1708,7 @@ static int tls_early_post_process_client_hello(SSL *s)
     /* For TLSv1.3 we must select the ciphersuite *before* session resumption */
     if (SSL_IS_TLS13(s)) {
         const SSL_CIPHER *cipher =
-            ssl3_choose_cipher(s, ciphers, ssl_get_cipher_preferences(s));
+            ssl3_choose_cipher(s, ciphers, SSL_get_ciphers(s));
 
         if (cipher == NULL) {
             SSLfatal(s, SSL_AD_HANDSHAKE_FAILURE,
@@ -1857,7 +1889,7 @@ static int tls_early_post_process_client_hello(SSL *s)
             /* check if some cipher was preferred by call back */
             if (pref_cipher == NULL)
                 pref_cipher = ssl3_choose_cipher(s, s->session->ciphers,
-                                                 ssl_get_cipher_preferences(s));
+                                                 SSL_get_ciphers(s));
             if (pref_cipher == NULL) {
                 SSLfatal(s, SSL_AD_HANDSHAKE_FAILURE,
                          SSL_F_TLS_EARLY_POST_PROCESS_CLIENT_HELLO,
@@ -1866,9 +1898,8 @@ static int tls_early_post_process_client_hello(SSL *s)
             }
 
             s->session->cipher = pref_cipher;
-            ssl_cipher_preference_list_free(s->cipher_list);
-            s->cipher_list = ssl_cipher_preference_list_from_ciphers(
-                                                       s->session->ciphers);
+            sk_SSL_CIPHER_free(s->cipher_list);
+            s->cipher_list = sk_SSL_CIPHER_dup(s->session->ciphers);
             sk_SSL_CIPHER_free(s->cipher_list_by_id);
             s->cipher_list_by_id = sk_SSL_CIPHER_dup(s->session->ciphers);
         }
@@ -2101,7 +2132,17 @@ int tls_handle_alpn(SSL *s)
                 s->ext.early_data_ok = 0;
 
                 if (!s->hit) {
-                    /* If a new session update it with the new ALPN value */
+                    /*
+                     * This is a new session and so alpn_selected should have
+                     * been initialised to NULL. We should update it with the
+                     * selected ALPN.
+                     */
+                    if (!ossl_assert(s->session->ext.alpn_selected == NULL)) {
+                        SSLfatal(s, SSL_AD_INTERNAL_ERROR,
+                                 SSL_F_TLS_HANDLE_ALPN,
+                                 ERR_R_INTERNAL_ERROR);
+                        return 0;
+                    }
                     s->session->ext.alpn_selected = OPENSSL_memdup(selected,
                                                                    selected_len);
                     if (s->session->ext.alpn_selected == NULL) {
@@ -2170,7 +2211,7 @@ WORK_STATE tls_post_process_client_hello(SSL *s, WORK_STATE wst)
             /* In TLSv1.3 we selected the ciphersuite before resumption */
             if (!SSL_IS_TLS13(s)) {
                 cipher =
-                    ssl3_choose_cipher(s, s->session->ciphers, ssl_get_cipher_preferences(s));
+                    ssl3_choose_cipher(s, s->session->ciphers, SSL_get_ciphers(s));
 
                 if (cipher == NULL) {
                     SSLfatal(s, SSL_AD_HANDSHAKE_FAILURE,
@@ -2472,6 +2513,12 @@ int tls_construct_server_key_exchange(SSL *s, WPACKET *pkt)
         }
 
         dh = EVP_PKEY_get0_DH(s->s3->tmp.pkey);
+        if (dh == NULL) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR,
+                     SSL_F_TLS_CONSTRUCT_SERVER_KEY_EXCHANGE,
+                     ERR_R_INTERNAL_ERROR);
+            goto err;
+        }
 
         EVP_PKEY_free(pkdh);
         pkdh = NULL;
@@ -2738,7 +2785,7 @@ int tls_construct_certificate_request(SSL *s, WPACKET *pkt)
             OPENSSL_free(s->pha_context);
             s->pha_context_len = 32;
             if ((s->pha_context = OPENSSL_malloc(s->pha_context_len)) == NULL
-                    || ssl_randbytes(s, s->pha_context, s->pha_context_len) <= 0
+                    || RAND_bytes(s->pha_context, s->pha_context_len) <= 0
                     || !WPACKET_sub_memcpy_u8(pkt, s->pha_context, s->pha_context_len)) {
                 SSLfatal(s, SSL_AD_INTERNAL_ERROR,
                          SSL_F_TLS_CONSTRUCT_CERTIFICATE_REQUEST,
@@ -2927,7 +2974,7 @@ static int tls_process_cke_rsa(SSL *s, PACKET *pkt)
      * fails. See https://tools.ietf.org/html/rfc5246#section-7.4.7.1
      */
 
-    if (ssl_randbytes(s, rand_premaster_secret,
+    if (RAND_priv_bytes(rand_premaster_secret,
                       sizeof(rand_premaster_secret)) <= 0) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_PROCESS_CKE_RSA,
                  ERR_R_INTERNAL_ERROR);
@@ -3224,11 +3271,9 @@ static int tls_process_cke_gost(SSL *s, PACKET *pkt)
     const unsigned char *start;
     size_t outlen = 32, inlen;
     unsigned long alg_a;
-    int Ttag, Tclass;
-    long Tlen;
-    size_t sess_key_len;
-    const unsigned char *data;
+    unsigned int asn1id, asn1len;
     int ret = 0;
+    PACKET encdata;
 
     /* Get our certificate private key */
     alg_a = s->s3->tmp.new_cipher->algorithm_auth;
@@ -3270,22 +3315,42 @@ static int tls_process_cke_gost(SSL *s, PACKET *pkt)
             ERR_clear_error();
     }
     /* Decrypt session key */
-    sess_key_len = PACKET_remaining(pkt);
-    if (!PACKET_get_bytes(pkt, &data, sess_key_len)) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_PROCESS_CKE_GOST,
-                 ERR_R_INTERNAL_ERROR);
-        goto err;
-    }
-    /* TODO(size_t): Convert this function */
-    if (ASN1_get_object((const unsigned char **)&data, &Tlen, &Ttag,
-                        &Tclass, (long)sess_key_len) != V_ASN1_CONSTRUCTED
-        || Ttag != V_ASN1_SEQUENCE || Tclass != V_ASN1_UNIVERSAL) {
+    if (!PACKET_get_1(pkt, &asn1id)
+            || asn1id != (V_ASN1_SEQUENCE | V_ASN1_CONSTRUCTED)
+            || !PACKET_peek_1(pkt, &asn1len)) {
         SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_F_TLS_PROCESS_CKE_GOST,
                  SSL_R_DECRYPTION_FAILED);
         goto err;
     }
-    start = data;
-    inlen = Tlen;
+    if (asn1len == 0x81) {
+        /*
+         * Long form length. Should only be one byte of length. Anything else
+         * isn't supported.
+         * We did a successful peek before so this shouldn't fail
+         */
+        if (!PACKET_forward(pkt, 1)) {
+            SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_PROCESS_CKE_GOST,
+                     SSL_R_DECRYPTION_FAILED);
+            goto err;
+        }
+    } else  if (asn1len >= 0x80) {
+        /*
+         * Indefinite length, or more than one long form length bytes. We don't
+         * support it
+         */
+        SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_F_TLS_PROCESS_CKE_GOST,
+                 SSL_R_DECRYPTION_FAILED);
+        goto err;
+    } /* else short form length */
+
+    if (!PACKET_as_length_prefixed_1(pkt, &encdata)) {
+        SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_F_TLS_PROCESS_CKE_GOST,
+                 SSL_R_DECRYPTION_FAILED);
+        goto err;
+    }
+    inlen = PACKET_remaining(&encdata);
+    start = PACKET_data(&encdata);
+
     if (EVP_PKEY_decrypt(pkey_ctx, premaster_secret, &outlen, start,
                          inlen) <= 0) {
         SSLfatal(s, SSL_AD_DECODE_ERROR, SSL_F_TLS_PROCESS_CKE_GOST,
@@ -3554,7 +3619,7 @@ MSG_PROCESS_RETURN tls_process_client_certificate(SSL *s, PACKET *pkt)
         EVP_PKEY *pkey;
         i = ssl_verify_cert_chain(s, sk);
         if (i <= 0) {
-            SSLfatal(s, ssl_verify_alarm_type(s->verify_result),
+            SSLfatal(s, ssl_x509err2alert(s->verify_result),
                      SSL_F_TLS_PROCESS_CLIENT_CERTIFICATE,
                      SSL_R_CERTIFICATE_VERIFY_FAILED);
             goto err;
@@ -3609,9 +3674,6 @@ MSG_PROCESS_RETURN tls_process_client_certificate(SSL *s, PACKET *pkt)
     sk_X509_pop_free(s->session->peer_chain, X509_free);
     s->session->peer_chain = sk;
 
-    if (new_sess != NULL)
-        ssl_update_cache(s, SSL_SESS_CACHE_SERVER);
-
     /*
      * Freeze the handshake buffer. For <TLS1.3 we do this after the CKE
      * message
@@ -3628,12 +3690,16 @@ MSG_PROCESS_RETURN tls_process_client_certificate(SSL *s, PACKET *pkt)
     sk = NULL;
 
     /* Save the current hash state for when we receive the CertificateVerify */
-    if (SSL_IS_TLS13(s)
-            && !ssl_handshake_hash(s, s->cert_verify_hash,
-                                   sizeof(s->cert_verify_hash),
-                                   &s->cert_verify_hash_len)) {
-        /* SSLfatal() already called */
-        goto err;
+    if (SSL_IS_TLS13(s)) {
+        if (!ssl_handshake_hash(s, s->cert_verify_hash,
+                                sizeof(s->cert_verify_hash),
+                                &s->cert_verify_hash_len)) {
+            /* SSLfatal() already called */
+            goto err;
+        }
+
+        /* Resend session tickets */
+        s->sent_tickets = 0;
     }
 
     ret = MSG_PROCESS_CONTINUE_READING;
@@ -3692,7 +3758,48 @@ int tls_construct_new_session_ticket(SSL *s, WPACKET *pkt)
     } age_add_u;
 
     if (SSL_IS_TLS13(s)) {
-        if (ssl_randbytes(s, age_add_u.age_add_c, sizeof(age_add_u)) <= 0) {
+        void (*cb) (const SSL *ssl, int type, int val) = NULL;
+
+        if (s->info_callback != NULL)
+            cb = s->info_callback;
+        else if (s->ctx->info_callback != NULL)
+            cb = s->ctx->info_callback;
+
+
+        if (cb != NULL) {
+            /*
+             * We don't start and stop the handshake in between each ticket when
+             * sending more than one - but it should appear that way to the info
+             * callback.
+             */
+            if (s->sent_tickets != 0) {
+                ossl_statem_set_in_init(s, 0);
+                cb(s, SSL_CB_HANDSHAKE_DONE, 1);
+                ossl_statem_set_in_init(s, 1);
+            }
+            cb(s, SSL_CB_HANDSHAKE_START, 1);
+        }
+        /*
+         * If we already sent one NewSessionTicket then we need to take a copy
+         * of it and create a new session from it.
+         */
+        if (s->sent_tickets != 0) {
+            SSL_SESSION *new_sess = ssl_session_dup(s->session, 0);
+
+            if (new_sess == NULL) {
+                /* SSLfatal already called */
+                goto err;
+            }
+
+            SSL_SESSION_free(s->session);
+            s->session = new_sess;
+        }
+
+        if (!ssl_generate_session_id(s, s->session)) {
+            /* SSLfatal() already called */
+            goto err;
+        }
+        if (RAND_bytes(age_add_u.age_add_c, sizeof(age_add_u)) <= 0) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR,
                      SSL_F_TLS_CONSTRUCT_NEW_SESSION_TICKET,
                      ERR_R_INTERNAL_ERROR);
@@ -3758,7 +3865,6 @@ int tls_construct_new_session_ticket(SSL *s, WPACKET *pkt)
                  SSL_F_TLS_CONSTRUCT_NEW_SESSION_TICKET, ERR_R_MALLOC_FAILURE);
         goto err;
     }
-    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_SET_DRBG, 0, s->drbg);
 
     p = senc;
     if (!i2d_SSL_SESSION(s->session, &p)) {
@@ -3777,7 +3883,6 @@ int tls_construct_new_session_ticket(SSL *s, WPACKET *pkt)
                  SSL_F_TLS_CONSTRUCT_NEW_SESSION_TICKET, ERR_R_INTERNAL_ERROR);
         goto err;
     }
-    sess->session_id_length = 0; /* ID is irrelevant for the ticket */
 
     slen = i2d_SSL_SESSION(sess, NULL);
     if (slen == 0 || slen > slen_full) {
@@ -3831,11 +3936,11 @@ int tls_construct_new_session_ticket(SSL *s, WPACKET *pkt)
         const EVP_CIPHER *cipher = EVP_aes_256_cbc();
 
         iv_len = EVP_CIPHER_iv_length(cipher);
-        if (ssl_randbytes(s, iv, iv_len) <= 0
+        if (RAND_bytes(iv, iv_len) <= 0
                 || !EVP_EncryptInit_ex(ctx, cipher, NULL,
-                                       tctx->ext.tick_aes_key, iv)
-                || !HMAC_Init_ex(hctx, tctx->ext.tick_hmac_key,
-                                 sizeof(tctx->ext.tick_hmac_key),
+                                       tctx->ext.secure->tick_aes_key, iv)
+                || !HMAC_Init_ex(hctx, tctx->ext.secure->tick_hmac_key,
+                                 sizeof(tctx->ext.secure->tick_hmac_key),
                                  EVP_sha256(), NULL)) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR,
                      SSL_F_TLS_CONSTRUCT_NEW_SESSION_TICKET,
@@ -3890,12 +3995,15 @@ int tls_construct_new_session_ticket(SSL *s, WPACKET *pkt)
                  SSL_F_TLS_CONSTRUCT_NEW_SESSION_TICKET, ERR_R_INTERNAL_ERROR);
         goto err;
     }
-    if (SSL_IS_TLS13(s)
-            && !tls_construct_extensions(s, pkt,
-                                         SSL_EXT_TLS1_3_NEW_SESSION_TICKET,
-                                         NULL, 0)) {
-        /* SSLfatal() already called */
-        goto err;
+    if (SSL_IS_TLS13(s)) {
+        if (!tls_construct_extensions(s, pkt,
+                                      SSL_EXT_TLS1_3_NEW_SESSION_TICKET,
+                                      NULL, 0)) {
+            /* SSLfatal() already called */
+            goto err;
+        }
+        s->sent_tickets++;
+        ssl_update_cache(s, SSL_SESS_CACHE_SERVER);
     }
     EVP_CIPHER_CTX_free(ctx);
     HMAC_CTX_free(hctx);

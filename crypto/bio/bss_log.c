@@ -39,6 +39,8 @@ void *_malloc32(__size_t);
 #  endif                        /* __INITIAL_POINTER_SIZE == 64 */
 # endif                         /* __INITIAL_POINTER_SIZE && defined
                                  * _ANSI_C_SOURCE */
+#elif defined(__DJGPP__) && defined(OPENSSL_NO_SOCK)
+# define NO_SYSLOG
 #elif (!defined(MSDOS) || defined(WATT32)) && !defined(OPENSSL_SYS_VXWORKS) && !defined(NO_SYSLOG)
 # include <syslog.h>
 #endif
@@ -195,6 +197,7 @@ static int slg_write(BIO *b, const char *in, int inl)
     };
 
     if ((buf = OPENSSL_malloc(inl + 1)) == NULL) {
+        BIOerr(BIO_F_SLG_WRITE, ERR_R_MALLOC_FAILURE);
         return 0;
     }
     strncpy(buf, in, inl);

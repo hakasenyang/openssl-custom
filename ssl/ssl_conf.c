@@ -229,8 +229,9 @@ static int cmd_ECDHParameters(SSL_CONF_CTX *cctx, const char *value)
     int nid;
 
     /* Ignore values supported by 1.0.2 for the automatic selection */
-    if ((cctx->flags & SSL_CONF_FLAG_FILE) &&
-        strcasecmp(value, "+automatic") == 0)
+    if ((cctx->flags & SSL_CONF_FLAG_FILE)
+            && (strcasecmp(value, "+automatic") == 0
+                || strcasecmp(value, "automatic") == 0))
         return 1;
     if ((cctx->flags & SSL_CONF_FLAG_CMDLINE) &&
         strcmp(value, "auto") == 0)
@@ -256,10 +257,22 @@ static int cmd_ECDHParameters(SSL_CONF_CTX *cctx, const char *value)
 static int cmd_CipherString(SSL_CONF_CTX *cctx, const char *value)
 {
     int rv = 1;
+
     if (cctx->ctx)
         rv = SSL_CTX_set_cipher_list(cctx->ctx, value);
     if (cctx->ssl)
         rv = SSL_set_cipher_list(cctx->ssl, value);
+    return rv > 0;
+}
+
+static int cmd_Ciphersuites(SSL_CONF_CTX *cctx, const char *value)
+{
+    int rv = 1;
+
+    if (cctx->ctx)
+        rv = SSL_CTX_set_ciphersuites(cctx->ctx, value);
+    if (cctx->ssl)
+        rv = SSL_set_ciphersuites(cctx->ssl, value);
     return rv > 0;
 }
 
@@ -557,6 +570,21 @@ static int cmd_RecordPadding(SSL_CONF_CTX *cctx, const char *value)
     return rv;
 }
 
+
+static int cmd_NumTickets(SSL_CONF_CTX *cctx, const char *value)
+{
+    int rv = 0;
+    int num_tickets = atoi(value);
+
+    if (num_tickets >= 0) {
+        if (cctx->ctx)
+            rv = SSL_CTX_set_num_tickets(cctx->ctx, num_tickets);
+        if (cctx->ssl)
+            rv = SSL_set_num_tickets(cctx->ssl, num_tickets);
+    }
+    return rv;
+}
+
 typedef struct {
     int (*cmd) (SSL_CONF_CTX *cctx, const char *value);
     const char *str_file;
@@ -606,6 +634,7 @@ static const ssl_conf_cmd_tbl ssl_conf_cmds[] = {
     SSL_CONF_CMD_STRING(ECDHParameters, "named_curve", SSL_CONF_FLAG_SERVER),
 #endif
     SSL_CONF_CMD_STRING(CipherString, "cipher", 0),
+    SSL_CONF_CMD_STRING(Ciphersuites, "ciphersuites", 0),
     SSL_CONF_CMD_STRING(Protocol, NULL, 0),
     SSL_CONF_CMD_STRING(MinProtocol, "min_protocol", 0),
     SSL_CONF_CMD_STRING(MaxProtocol, "max_protocol", 0),
@@ -641,7 +670,8 @@ static const ssl_conf_cmd_tbl ssl_conf_cmds[] = {
                  SSL_CONF_FLAG_SERVER | SSL_CONF_FLAG_CERTIFICATE,
                  SSL_CONF_TYPE_FILE),
 #endif
-    SSL_CONF_CMD_STRING(RecordPadding, "record_padding", 0)
+    SSL_CONF_CMD_STRING(RecordPadding, "record_padding", 0),
+    SSL_CONF_CMD_STRING(NumTickets, "num_tickets", SSL_CONF_FLAG_SERVER)
 };
 
 /* Supported switches: must match order of switches in ssl_conf_cmds */

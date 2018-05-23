@@ -36,7 +36,8 @@ NON_EMPTY_TRANSLATION_UNIT
 # include <openssl/x509v3.h>
 # include <openssl/rand.h>
 
-# if defined(OPENSSL_SYS_UNIX) && !defined(OPENSSL_NO_SOCK)
+# if defined(OPENSSL_SYS_UNIX) && !defined(OPENSSL_NO_SOCK) \
+     && !defined(OPENSSL_NO_POSIX_IO)
 #  define OCSP_DAEMON
 #  include <sys/types.h>
 #  include <sys/wait.h>
@@ -550,7 +551,7 @@ int ocsp_main(int argc, char **argv)
     }
 
     if (ridx_filename != NULL
-        && (rkey != NULL || rsigner != NULL || rca_cert != NULL)) {
+        && (rkey == NULL || rsigner == NULL || rca_cert == NULL)) {
         BIO_printf(bio_err,
                    "Responder mode requires certificate, key, and CA.\n");
         goto end;
@@ -558,7 +559,7 @@ int ocsp_main(int argc, char **argv)
 
     if (ridx_filename != NULL) {
         rdb = load_index(ridx_filename, NULL);
-        if (rdb == NULL || !index_index(rdb)) {
+        if (rdb == NULL || index_index(rdb) <= 0) {
             ret = 1;
             goto end;
         }
@@ -581,10 +582,11 @@ redo_accept:
         if (index_changed(rdb)) {
             CA_DB *newrdb = load_index(ridx_filename, NULL);
 
-            if (newrdb != NULL) {
+            if (newrdb != NULL && index_index(newrdb) > 0) {
                 free_index(rdb);
                 rdb = newrdb;
             } else {
+                free_index(newrdb);
                 log_message(LOG_ERR, "error reloading updated index: %s",
                             ridx_filename);
             }
@@ -695,10 +697,8 @@ redo_accept:
     if (i != OCSP_RESPONSE_STATUS_SUCCESSFUL) {
         BIO_printf(out, "Responder Error: %s (%d)\n",
                    OCSP_response_status_str(i), i);
-        if (!ignore_err) {
-                ret = 0;
+        if (!ignore_err)
                 goto end;
-        }
     }
 
     if (resp_text)
@@ -812,7 +812,10 @@ log_message(int level, const char *fmt, ...)
     va_start(ap, fmt);
 # ifdef OCSP_DAEMON
     if (multi) {
-        vsyslog(level, fmt, ap);
+        char buf[1024];
+        if (vsnprintf(buf, sizeof(buf), fmt, ap) > 0) {
+            syslog(level, "%s", buf);
+        }
         if (level >= LOG_ERR)
             ERR_print_errors_cb(print_syslog, &level);
     }
@@ -878,7 +881,6 @@ static void noteterm (int sig)
  */
 static void spawn_loop(void)
 {
-    const char *signame;
     pid_t *kidpids = NULL;
     int status;
     int procs = 0;
@@ -927,7 +929,10 @@ static void spawn_loop(void)
                     else if (WIFSIGNALED(status))
                         syslog(LOG_WARNING, "child process: %ld, term signal %d%s",
                                (long)fpid, WTERMSIG(status),
-                               WCOREDUMP(status) ? " (core dumped)" : "");
+#ifdef WCOREDUMP
+                               WCOREDUMP(status) ? " (core dumped)" :
+#endif
+                               "");
                     sleep(1);
                 }
                 break;
@@ -971,9 +976,7 @@ static void spawn_loop(void)
     }
 
     /* The loop above can only break on termsig */
-    signame = strsignal(termsig);
-    syslog(LOG_INFO, "terminating on signal: %s(%d)",
-           signame ? signame : "", termsig);
+    syslog(LOG_INFO, "terminating on signal: %d", termsig);
     killall(0, kidpids);
 }
 # endif

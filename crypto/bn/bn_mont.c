@@ -95,6 +95,8 @@ static int BN_from_montgomery_word(BIGNUM *ret, BIGNUM *r, BN_MONT_CTX *mont)
 
     /* clear the top words of T */
     i = max - r->top;
+    if (i < 0)
+        return 0;
     if (i)
         memset(&rp[r->top], 0, sizeof(*rp) * i);
 
@@ -197,8 +199,10 @@ BN_MONT_CTX *BN_MONT_CTX_new(void)
 {
     BN_MONT_CTX *ret;
 
-    if ((ret = OPENSSL_malloc(sizeof(*ret))) == NULL)
+    if ((ret = OPENSSL_malloc(sizeof(*ret))) == NULL) {
+        BNerr(BN_F_BN_MONT_CTX_NEW, ERR_R_MALLOC_FAILURE);
         return NULL;
+    }
 
     BN_MONT_CTX_init(ret);
     ret->flags = BN_FLG_MALLOCED;
@@ -208,9 +212,9 @@ BN_MONT_CTX *BN_MONT_CTX_new(void)
 void BN_MONT_CTX_init(BN_MONT_CTX *ctx)
 {
     ctx->ri = 0;
-    bn_init(&(ctx->RR));
-    bn_init(&(ctx->N));
-    bn_init(&(ctx->Ni));
+    bn_init(&ctx->RR);
+    bn_init(&ctx->N);
+    bn_init(&ctx->Ni);
     ctx->n0[0] = ctx->n0[1] = 0;
     ctx->flags = 0;
 }
@@ -219,10 +223,9 @@ void BN_MONT_CTX_free(BN_MONT_CTX *mont)
 {
     if (mont == NULL)
         return;
-
-    BN_clear_free(&(mont->RR));
-    BN_clear_free(&(mont->N));
-    BN_clear_free(&(mont->Ni));
+    BN_clear_free(&mont->RR);
+    BN_clear_free(&mont->N);
+    BN_clear_free(&mont->Ni);
     if (mont->flags & BN_FLG_MALLOCED)
         OPENSSL_free(mont);
 }
@@ -278,7 +281,9 @@ int BN_MONT_CTX_set(BN_MONT_CTX *mont, const BIGNUM *mod, BN_CTX *ctx)
         if ((buf[1] = mod->top > 1 ? mod->d[1] : 0))
             tmod.top = 2;
 
-        if ((BN_mod_inverse(Ri, R, &tmod, ctx)) == NULL)
+        if (BN_is_one(&tmod))
+            BN_zero(Ri);
+        else if ((BN_mod_inverse(Ri, R, &tmod, ctx)) == NULL)
             goto err;
         if (!BN_lshift(Ri, Ri, 2 * BN_BITS2))
             goto err;           /* R*Ri */
@@ -311,7 +316,9 @@ int BN_MONT_CTX_set(BN_MONT_CTX *mont, const BIGNUM *mod, BN_CTX *ctx)
         buf[1] = 0;
         tmod.top = buf[0] != 0 ? 1 : 0;
         /* Ri = R^-1 mod N */
-        if ((BN_mod_inverse(Ri, R, &tmod, ctx)) == NULL)
+        if (BN_is_one(&tmod))
+            BN_zero(Ri);
+        else if ((BN_mod_inverse(Ri, R, &tmod, ctx)) == NULL)
             goto err;
         if (!BN_lshift(Ri, Ri, BN_BITS2))
             goto err;           /* R*Ri */

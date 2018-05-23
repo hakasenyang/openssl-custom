@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2017 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2018 The OpenSSL Project Authors. All Rights Reserved.
  * Copyright 2005 Nokia. All rights reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
@@ -295,7 +295,7 @@ static int def_generate_session_id(SSL *ssl, unsigned char *id,
 {
     unsigned int retry = 0;
     do
-        if (ssl_randbytes(ssl, id, *id_len) <= 0)
+        if (RAND_bytes(id, *id_len) <= 0)
             return 0;
     while (SSL_has_matching_session_id(ssl, id, *id_len) &&
            (++retry < MAX_SESS_ID_ATTEMPTS)) ;
@@ -417,7 +417,13 @@ int ssl_get_new_session(SSL *s, int session)
     s->session = NULL;
 
     if (session) {
-        if (!ssl_generate_session_id(s, ss)) {
+        if (SSL_IS_TLS13(s)) {
+            /*
+             * We generate the session id while constructing the
+             * NewSessionTicket in TLSv1.3.
+             */
+            ss->session_id_length = 0;
+        } else if (!ssl_generate_session_id(s, ss)) {
             /* SSLfatal() already called */
             SSL_SESSION_free(ss);
             return 0;
@@ -479,9 +485,14 @@ int ssl_get_prev_session(SSL *s, CLIENTHELLO_MSG *hello)
     SSL_SESSION *ret = NULL;
     int fatal = 0, discard;
     int try_session_cache = 0;
-    SSL_TICKET_RETURN r;
+    SSL_TICKET_STATUS r;
 
     if (SSL_IS_TLS13(s)) {
+        /*
+         * By default we will send a new ticket. This can be overridden in the
+         * ticket processing.
+         */
+        s->ext.ticket_expected = 1;
         if (!tls_parse_extension(s, TLSEXT_IDX_psk_kex_modes,
                                  SSL_EXT_CLIENT_HELLO, hello->pre_proc_exts,
                                  NULL, 0)
@@ -755,10 +766,10 @@ static int remove_session_lock(SSL_CTX *ctx, SSL_SESSION *c, int lck)
     if ((c != NULL) && (c->session_id_length != 0)) {
         if (lck)
             CRYPTO_THREAD_write_lock(ctx->lock);
-        if ((r = lh_SSL_SESSION_retrieve(ctx->sessions, c)) == c) {
+        if ((r = lh_SSL_SESSION_retrieve(ctx->sessions, c)) != NULL) {
             ret = 1;
-            r = lh_SSL_SESSION_delete(ctx->sessions, c);
-            SSL_SESSION_list_remove(ctx, c);
+            r = lh_SSL_SESSION_delete(ctx->sessions, r);
+            SSL_SESSION_list_remove(ctx, r);
         }
         c->not_resumable = 1;
 
@@ -781,7 +792,6 @@ void SSL_SESSION_free(SSL_SESSION *ss)
 
     if (ss == NULL)
         return;
-
     CRYPTO_DOWN_REF(&ss->references, &i, ss->lock);
     REF_PRINT_COUNT("SSL_SESSION", ss);
     if (i > 0)

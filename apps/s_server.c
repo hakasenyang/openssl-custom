@@ -236,6 +236,7 @@ typedef struct srpsrvparm_st {
     SRP_VBASE *vb;
     SRP_user_pwd *user;
 } srpsrvparm;
+static srpsrvparm srp_callback_parm;
 
 /*
  * This callback pretends to require some asynchronous logic in order to
@@ -722,13 +723,6 @@ static int not_resumable_sess_cb(SSL *s, int is_forward_secure)
     return is_forward_secure;
 }
 
-#ifndef OPENSSL_NO_SRP
-static srpsrvparm srp_callback_parm;
-#endif
-#ifndef OPENSSL_NO_SRTP
-static char *srtp_profiles = NULL;
-#endif
-
 typedef enum OPTION_choice {
     OPT_ERR = -1, OPT_EOF = 0, OPT_HELP, OPT_ENGINE,
     OPT_4, OPT_6, OPT_ACCEPT, OPT_PORT, OPT_UNIX, OPT_UNLINK, OPT_NACCEPT,
@@ -753,7 +747,7 @@ typedef enum OPTION_choice {
     OPT_ID_PREFIX, OPT_SERVERNAME, OPT_SERVERNAME_FATAL,
     OPT_CERT2, OPT_KEY2, OPT_NEXTPROTONEG, OPT_ALPN,
     OPT_SRTP_PROFILES, OPT_KEYMATEXPORT, OPT_KEYMATEXPORTLEN,
-    OPT_KEYLOG_FILE, OPT_MAX_EARLY, OPT_EARLY_DATA,
+    OPT_KEYLOG_FILE, OPT_MAX_EARLY, OPT_EARLY_DATA, OPT_S_NUM_TICKETS,
     OPT_R_ENUM,
     OPT_S_ENUM,
     OPT_V_ENUM,
@@ -961,6 +955,8 @@ const OPTIONS s_server_options[] = {
     {"max_early_data", OPT_MAX_EARLY, 'n',
      "The maximum number of bytes of early data"},
     {"early_data", OPT_EARLY_DATA, '-', "Attempt to read early data"},
+    {"num_tickets", OPT_S_NUM_TICKETS, 'n',
+     "The number of TLSv1.3 session tickets that a server will automatically  issue" },
     {NULL, OPT_EOF, 0, NULL}
 };
 
@@ -1023,6 +1019,9 @@ int s_server_main(int argc, char *argv[])
 #ifndef OPENSSL_NO_SRP
     char *srpuserseed = NULL;
     char *srp_verifier_file = NULL;
+#endif
+#ifndef OPENSSL_NO_SRTP
+    char *srtp_profiles = NULL;
 #endif
     int min_version = 0, max_version = 0, prot_opt = 0, no_prot_opt = 0;
     int s_server_verify = SSL_VERIFY_NONE;
@@ -1257,6 +1256,7 @@ int s_server_main(int argc, char *argv[])
                 goto opthelp;
             break;
         case OPT_S_CASES:
+        case OPT_S_NUM_TICKETS:
             if (ssl_args == NULL)
                 ssl_args = sk_OPENSSL_STRING_new_null();
             if (ssl_args == NULL
@@ -1753,8 +1753,15 @@ int s_server_main(int argc, char *argv[])
         ERR_print_errors(bio_err);
         goto end;
     }
+
+    SSL_CTX_clear_mode(ctx, SSL_MODE_AUTO_RETRY);
+
     if (sdebug)
         ssl_ctx_security_debug(ctx, sdebug);
+
+    if (!config_ctx(cctx, ssl_args, ctx))
+        goto end;
+
     if (ssl_config) {
         if (SSL_CTX_config(ctx, ssl_config) == 0) {
             BIO_printf(bio_err, "Error using configuration \"%s\"\n",
@@ -1763,9 +1770,11 @@ int s_server_main(int argc, char *argv[])
             goto end;
         }
     }
-    if (SSL_CTX_set_min_proto_version(ctx, min_version) == 0)
+    if (min_version != 0
+        && SSL_CTX_set_min_proto_version(ctx, min_version) == 0)
         goto end;
-    if (SSL_CTX_set_max_proto_version(ctx, max_version) == 0)
+    if (max_version != 0
+        && SSL_CTX_set_max_proto_version(ctx, max_version) == 0)
         goto end;
 
     if (session_id_prefix) {
@@ -1841,8 +1850,6 @@ int s_server_main(int argc, char *argv[])
     }
 
     ssl_ctx_add_crls(ctx, crls, 0);
-    if (!config_ctx(cctx, ssl_args, ctx))
-        goto end;
 
     if (!ssl_load_stores(ctx, vfyCApath, vfyCAfile, chCApath, chCAfile,
                          crls, crl_download)) {
@@ -2098,8 +2105,6 @@ int s_server_main(int argc, char *argv[])
     if (max_early_data >= 0)
         SSL_CTX_set_max_early_data(ctx, max_early_data);
 
-    BIO_printf(bio_s_out, "ACCEPT\n");
-    (void)BIO_flush(bio_s_out);
     if (rev)
         server_cb = rev_body;
     else if (www)
@@ -2112,7 +2117,7 @@ int s_server_main(int argc, char *argv[])
         unlink(host);
 #endif
     do_server(&accept_socket, host, port, socket_family, socket_type, protocol,
-              server_cb, context, naccept);
+              server_cb, context, naccept, bio_s_out);
     print_stats(bio_s_out, ctx);
     ret = 0;
  end:
@@ -2194,9 +2199,7 @@ static int sv_body(int s, int stype, int prot, unsigned char *context)
     SSL *con = NULL;
     BIO *sbio;
     struct timeval timeout;
-#if defined(OPENSSL_SYS_WINDOWS) || defined(OPENSSL_SYS_MSDOS)
-    struct timeval tv;
-#else
+#if !(defined(OPENSSL_SYS_WINDOWS) || defined(OPENSSL_SYS_MSDOS))
     struct timeval *timeoutp;
 #endif
 #ifndef OPENSSL_NO_DTLS
@@ -2397,26 +2400,23 @@ static int sv_body(int s, int stype, int prot, unsigned char *context)
              * second and check for any keypress. In a proper Windows
              * application we wouldn't do this because it is inefficient.
              */
-            tv.tv_sec = 1;
-            tv.tv_usec = 0;
-            i = select(width, (void *)&readfds, NULL, NULL, &tv);
+            timeout.tv_sec = 1;
+            timeout.tv_usec = 0;
+            i = select(width, (void *)&readfds, NULL, NULL, &timeout);
             if (has_stdin_waiting())
                 read_from_terminal = 1;
             if ((i < 0) || (!i && !read_from_terminal))
                 continue;
 #else
-            if ((SSL_version(con) == DTLS1_VERSION) &&
-                DTLSv1_get_timeout(con, &timeout))
+            if (SSL_is_dtls(con) && DTLSv1_get_timeout(con, &timeout))
                 timeoutp = &timeout;
             else
                 timeoutp = NULL;
 
             i = select(width, (void *)&readfds, NULL, NULL, timeoutp);
 
-            if ((SSL_version(con) == DTLS1_VERSION)
-                && DTLSv1_handle_timeout(con) > 0) {
+            if ((SSL_is_dtls(con)) && DTLSv1_handle_timeout(con) > 0)
                 BIO_printf(bio_err, "TIMEOUT occurred\n");
-            }
 
             if (i <= 0)
                 continue;
@@ -2676,9 +2676,6 @@ static int sv_body(int s, int stype, int prot, unsigned char *context)
     }
     BIO_printf(bio_s_out, "CONNECTION CLOSED\n");
     OPENSSL_clear_free(buf, bufsize);
-    if (ret >= 0)
-        BIO_printf(bio_s_out, "ACCEPT\n");
-    (void)BIO_flush(bio_s_out);
     return ret;
 }
 
@@ -3287,8 +3284,6 @@ static int www_body(int s, int stype, int prot, unsigned char *context)
     SSL_set_shutdown(con, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
 
  err:
-    if (ret >= 0)
-        BIO_printf(bio_s_out, "ACCEPT\n");
     OPENSSL_free(buf);
     BIO_free_all(io);
     return ret;
