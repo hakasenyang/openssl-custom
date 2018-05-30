@@ -31,7 +31,23 @@ const unsigned char tls12downgrade[] = {
 };
 
 /* The list of available TLSv1.3 ciphers */
+/* Since nginx can not set the TLS 1.3 cipher, remove it temporarily. */
 static SSL_CIPHER tls13_ciphers[] = {
+
+};
+
+/*
+ * The list of available ciphers, mostly organized into the following
+ * groups:
+ *      Always there
+ *      EC
+ *      PSK
+ *      SRP (within that: RSA EC PSK)
+ *      Cipher families: Chacha/poly, Camellia, Gost, IDEA, SEED
+ *      Weak ciphers
+ */
+static SSL_CIPHER ssl3_ciphers[] = {
+    /* TLSv1.3 ciphers */
     {
         1,
         TLS1_3_RFC_AES_128_GCM_SHA256,
@@ -111,20 +127,8 @@ static SSL_CIPHER tls13_ciphers[] = {
         SSL_HANDSHAKE_MAC_SHA256,
         128,
         128,
-    }
-};
-
-/*
- * The list of available ciphers, mostly organized into the following
- * groups:
- *      Always there
- *      EC
- *      PSK
- *      SRP (within that: RSA EC PSK)
- *      Cipher families: Chacha/poly, Camellia, Gost, IDEA, SEED
- *      Weak ciphers
- */
-static SSL_CIPHER ssl3_ciphers[] = {
+    },
+    /* List of cipher below TLSv1.3 */
     {
      1,
      SSL3_TXT_RSA_NULL_MD5,

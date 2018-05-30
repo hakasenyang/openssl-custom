@@ -295,6 +295,7 @@ static const SSL_CIPHER cipher_aliases[] = {
     {0, SSL_TXT_TLSV1, NULL, 0, 0, 0, 0, 0, TLS1_VERSION},
     {0, "TLSv1.0", NULL, 0, 0, 0, 0, 0, TLS1_VERSION},
     {0, SSL_TXT_TLSV1_2, NULL, 0, 0, 0, 0, 0, TLS1_2_VERSION},
+    {0, "TLS13", NULL, 0, 0, 0, 0, 0, TLS1_3_VERSION},
 
     /* strength classes */
     {0, SSL_TXT_LOW, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, SSL_LOW},
@@ -1063,7 +1064,7 @@ static int ssl_cipher_process_rulestr(const char *rule_str,
             while (((ch >= 'A') && (ch <= 'Z')) ||
                    ((ch >= '0') && (ch <= '9')) ||
                    ((ch >= 'a') && (ch <= 'z')) ||
-                   (ch == '-') || (ch == '.') || (ch == '='))
+                   (ch == '-') || (ch == '.') || (ch == '=') || (ch == '_'))
 #else
             while (isalnum((unsigned char)ch) || (ch == '-') || (ch == '.')
                    || (ch == '='))
@@ -1465,12 +1466,12 @@ STACK_OF(SSL_CIPHER) *ssl_create_cipher_list(const SSL_METHOD *ssl_method,
                                              const char *rule_str,
                                              CERT *c)
 {
-    int ok, num_of_ciphers, num_of_alias_max, num_of_group_aliases, i, tls13_len;
+    int ok, num_of_ciphers, num_of_alias_max, num_of_group_aliases;
     uint32_t disabled_mkey, disabled_auth, disabled_enc, disabled_mac;
     STACK_OF(SSL_CIPHER) *cipherstack = NULL;
     const char *rule_p;
     CIPHER_ORDER *co_list = NULL, *head = NULL, *tail = NULL, *curr;
-    const SSL_CIPHER **ca_list = NULL, *tmp = NULL;
+    const SSL_CIPHER **ca_list = NULL;
     uint8_t *in_group_flags = NULL;
     unsigned int num_in_group_flags = 0;
     struct ssl_cipher_preference_list_st *pref_list = NULL;
@@ -1602,6 +1603,9 @@ STACK_OF(SSL_CIPHER) *ssl_create_cipher_list(const SSL_METHOD *ssl_method,
     ssl_cipher_apply_rule(0, SSL_kDHE | SSL_kECDHE, 0, 0, SSL_AEAD, 0, 0,
                           CIPHER_BUMP, -1, 0, &head, &tail);
 
+    ssl_cipher_apply_rule(0, 0, 0, 0, 0, TLS1_3_VERSION, 0, CIPHER_BUMP, -1, 0,
+                          &head, &tail);
+
     /* Now disable everything (maintaining the ordering!) */
     ssl_cipher_apply_rule(0, 0, 0, 0, 0, 0, 0, CIPHER_DEL, -1, 0, &head, &tail);
 
@@ -1656,23 +1660,6 @@ STACK_OF(SSL_CIPHER) *ssl_create_cipher_list(const SSL_METHOD *ssl_method,
     in_group_flags = OPENSSL_malloc(num_of_ciphers);
     if (!in_group_flags)
         goto err;
-
-    /* Add TLSv1.3 ciphers first - we always prefer those if possible */
-    tls13_len = sk_SSL_CIPHER_num(tls13_ciphersuites);
-    for (i = 0; i < tls13_len; i++) {
-        tmp = sk_SSL_CIPHER_value(tls13_ciphersuites, i);
-        if (!sk_SSL_CIPHER_push(cipherstack,
-                                tmp))
-            goto err;
-        /* Temporary - AES128, CHACHA20 priority adjustment of TLS 1.3. */
-        if (tmp->algorithm_enc == SSL_AES128GCM &&
-            tls13_len > (i + 1)) {
-            tmp = sk_SSL_CIPHER_value(tls13_ciphersuites, i + 1);
-            in_group_flags[num_in_group_flags++] = (tmp->algorithm_enc == SSL_CHACHA20POLY1305) ? 1 : 0;
-        }
-        else
-            in_group_flags[num_in_group_flags++] = 0;
-    }
 
     /*
      * The cipher selection for the list is done. The ciphers are added
