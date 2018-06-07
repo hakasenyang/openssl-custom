@@ -33,7 +33,9 @@ const unsigned char tls12downgrade[] = {
 /* The list of available TLSv1.3 ciphers */
 /* Since nginx can not set the TLS 1.3 cipher, remove it temporarily. */
 static SSL_CIPHER tls13_ciphers[] = {
-
+    {
+        0,
+    }
 };
 
 /*
