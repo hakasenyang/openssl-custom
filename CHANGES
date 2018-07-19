@@ -9,6 +9,23 @@
 
  Changes between 1.1.0h and 1.1.1 [xx XXX xxxx]
 
+  *) Revert blinding in ECDSA sign and instead make problematic addition
+     length-invariant. Switch even to fixed-length Montgomery multiplication.
+     [Andy Polyakov]
+
+  *) Use the new ec_scalar_mul_ladder scaffold to implement a specialized ladder
+     step for binary curves. The new implementation is based on formulas from
+     differential addition-and-doubling in mixed Lopez-Dahab projective
+     coordinates, modified to independently blind the operands.
+     [Billy Bob Brumley, Sohaib ul Hassan, Nicola Tuveri]
+
+  *) Add a scaffold to optionally enhance the Montgomery ladder implementation
+     for `ec_scalar_mul_ladder` (formerly `ec_mul_consttime`) allowing
+     EC_METHODs to implement their own specialized "ladder step", to take
+     advantage of more favorable coordinate systems or more efficient
+     differential addition-and-doubling algorithms.
+     [Billy Bob Brumley, Sohaib ul Hassan, Nicola Tuveri]
+
   *) Modified the random device based seed sources to keep the relevant
      file descriptors open rather than reopening them on each access.
      This allows such sources to operate in a chroot() jail without
@@ -196,12 +213,12 @@
 
      Some of its new features are:
       o Support for multiple DRBG instances with seed chaining.
-      o Add a public DRBG instance for the default RAND method.
-      o Add a dedicated DRBG instance for generating long term private keys.
-      o Make the DRBG instances fork-safe.
+      o The default RAND method makes use of a DRBG.
+      o There is a public and private DRBG instance.
+      o The DRBG instances are fork-safe.
       o Keep all global DRBG instances on the secure heap if it is enabled.
-      o Add a DRBG instance to every SSL instance for lock free operation
-        and to increase unpredictability.
+      o The public and private DRBG instance are per thread for lock free
+        operation
      [Paul Dale, Benjamin Kaduk, Kurt Roeckx, Rich Salz, Matthias St. Pierre]
 
   *) Changed Configure so it only says what it does and doesn't dump

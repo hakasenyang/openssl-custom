@@ -2332,6 +2332,7 @@ __owur int ssl_security(const SSL *s, int op, int bits, int nid, void *other);
 __owur int ssl_ctx_security(const SSL_CTX *ctx, int op, int bits, int nid,
                             void *other);
 
+__owur int ssl_cert_lookup_by_nid(int nid, size_t *pidx);
 __owur const SSL_CERT_LOOKUP *ssl_cert_lookup_by_pkey(const EVP_PKEY *pk,
                                                       size_t *pidx);
 __owur const SSL_CERT_LOOKUP *ssl_cert_lookup_by_idx(size_t idx);
@@ -2412,7 +2413,8 @@ __owur int ssl3_handshake_write(SSL *s);
 
 __owur int ssl_allow_compression(SSL *s);
 
-__owur int ssl_version_supported(const SSL *s, int version);
+__owur int ssl_version_supported(const SSL *s, int version,
+                                 const SSL_METHOD **meth);
 
 __owur int ssl_set_client_hello_version(SSL *s);
 __owur int ssl_check_version_downgrade(SSL *s);
