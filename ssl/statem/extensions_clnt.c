@@ -538,7 +538,8 @@ EXT_RETURN tls_construct_ctos_supported_versions(SSL *s, WPACKET *pkt,
     for (currv = max_version; currv >= min_version; currv--) {
         /* TODO(TLS1.3): Remove this first if clause prior to release!! */
         if (currv == TLS1_3_VERSION) {
-            if (!WPACKET_put_bytes_u16(pkt, TLS1_3_VERSION_DRAFT)
+            if (!WPACKET_put_bytes_u16(pkt, TLS1_3_VERSION)
+                    || !WPACKET_put_bytes_u16(pkt, TLS1_3_VERSION_DRAFT)
                     || !WPACKET_put_bytes_u16(pkt, TLS1_3_VERSION_DRAFT_27)
                     || !WPACKET_put_bytes_u16(pkt, TLS1_3_VERSION_DRAFT_26)
                     || !WPACKET_put_bytes_u16(pkt, TLS1_3_VERSION_DRAFT_23)) {

@@ -381,9 +381,6 @@ MSG_PROCESS_RETURN tls_process_cert_verify(SSL *s, PACKET *pkt)
             /* SSLfatal() already called */
             goto err;
         }
-#ifdef SSL_DEBUG
-        fprintf(stderr, "USING TLSv1.2 HASH %s\n", EVP_MD_name(md));
-#endif
     } else if (!tls1_set_peer_legacy_sigalg(s, pkey)) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_PROCESS_CERT_VERIFY,
                      ERR_R_INTERNAL_ERROR);
@@ -395,6 +392,11 @@ MSG_PROCESS_RETURN tls_process_cert_verify(SSL *s, PACKET *pkt)
                  ERR_R_INTERNAL_ERROR);
         goto err;
     }
+
+#ifdef SSL_DEBUG
+    if (SSL_USE_SIGALGS(s))
+        fprintf(stderr, "USING TLSv1.2 HASH %s\n", EVP_MD_name(md));
+#endif
 
     /* Check for broken implementations of GOST ciphersuites */
     /*
@@ -1764,17 +1766,16 @@ int ssl_choose_server_version(SSL *s, CLIENTHELLO_MSG *hello, DOWNGRADE *dgrd)
 
         while (PACKET_get_net_2(&versionslist, &candidate_vers)) {
             /* TODO(TLS1.3): Remove this before release */
-            if (candidate_vers == TLS1_3_VERSION_DRAFT
+            if (candidate_vers == TLS1_3_VERSION
+                    || candidate_vers == TLS1_3_VERSION_DRAFT
                     || candidate_vers == TLS1_3_VERSION_DRAFT_26
                     || candidate_vers == TLS1_3_VERSION_DRAFT_23) {
                 if (best_vers == TLS1_3_VERSION
-                        && orig_candidate > candidate_vers)
+                        && (orig_candidate > candidate_vers
+                        || orig_candidate == TLS1_3_VERSION))
                     continue;
                 orig_candidate = candidate_vers;
                 candidate_vers = TLS1_3_VERSION;
-            } else if (candidate_vers == TLS1_3_VERSION) {
-                /* Don't actually accept real TLSv1.3 */
-                continue;
             }
             /*
              * TODO(TLS1.3): There is some discussion on the TLS list about
@@ -1935,7 +1936,6 @@ int ssl_choose_client_version(SSL *s, int version, RAW_EXTENSION *extensions)
         if (s->version != vent->version)
             continue;
 
-#ifndef OPENSSL_NO_TLS13DOWNGRADE
         /* Check for downgrades */
         if (s->version == TLS1_2_VERSION && highver > s->version) {
             if (memcmp(tls12downgrade,
@@ -1962,7 +1962,6 @@ int ssl_choose_client_version(SSL *s, int version, RAW_EXTENSION *extensions)
                 return 0;
             }
         }
-#endif
 
         s->method = method;
         return 1;
