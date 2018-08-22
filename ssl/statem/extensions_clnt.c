@@ -507,7 +507,7 @@ EXT_RETURN tls_construct_ctos_supported_versions(SSL *s, WPACKET *pkt,
 {
     int currv, min_version, max_version, reason;
 
-    reason = ssl_get_min_max_version(s, &min_version, &max_version);
+    reason = ssl_get_min_max_version(s, &min_version, &max_version, NULL);
     if (reason != 0) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR,
                  SSL_F_TLS_CONSTRUCT_CTOS_SUPPORTED_VERSIONS, reason);
@@ -1210,23 +1210,8 @@ EXT_RETURN tls_construct_ctos_post_handshake_auth(SSL *s, WPACKET *pkt,
                                                   X509 *x, size_t chainidx)
 {
 #ifndef OPENSSL_NO_TLS1_3
-    if (!s->pha_forced) {
-        int i, n = 0;
-
-        /* check for cert, if present, we can do post-handshake auth */
-        if (s->cert == NULL)
-            return EXT_RETURN_NOT_SENT;
-
-        for (i = 0; i < SSL_PKEY_NUM; i++) {
-            if (s->cert->pkeys[i].x509 != NULL
-                    && s->cert->pkeys[i].privatekey != NULL)
-                n++;
-        }
-
-        /* no identity certificates, so no extension */
-        if (n == 0)
-            return EXT_RETURN_NOT_SENT;
-    }
+    if (!s->pha_enabled)
+        return EXT_RETURN_NOT_SENT;
 
     /* construct extension - 0 length, no contents */
     if (!WPACKET_put_bytes_u16(pkt, TLSEXT_TYPE_post_handshake_auth)
