@@ -1161,6 +1161,7 @@ int tls_parse_ctos_psk(SSL *s, PACKET *pkt, unsigned int context, X509 *x,
             ext = 1;
             if (id == 0)
                 s->ext.early_data_ok = 1;
+            s->ext.ticket_expected = 1;
         } else {
             uint32_t ticket_age = 0, now, agesec, agems;
             int ret;
@@ -1236,6 +1237,7 @@ int tls_parse_ctos_psk(SSL *s, PACKET *pkt, unsigned int context, X509 *x,
             SSL_SESSION_free(sess);
             sess = NULL;
             s->ext.early_data_ok = 0;
+            s->ext.ticket_expected = 0;
             continue;
         }
         break;
