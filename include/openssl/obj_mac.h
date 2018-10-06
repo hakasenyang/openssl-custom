@@ -4811,6 +4811,10 @@
 #define LN_chacha20             "chacha20"
 #define NID_chacha20            1019
 
+#define SN_chacha20_poly1305_draft      "ChaCha20-Poly1305-D"
+#define LN_chacha20_poly1305_draft      "chacha20-poly1305-draft"
+#define NID_chacha20_poly1305_draft     1195
+
 #define SN_dhpublicnumber               "dhpublicnumber"
 #define LN_dhpublicnumber               "X9.42 DH"
 #define NID_dhpublicnumber              920
