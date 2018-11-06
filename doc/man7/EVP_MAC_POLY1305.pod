@@ -2,15 +2,15 @@
 
 =head1 NAME
 
-EVP_MAC_SIPHASH - The SipHash EVP_MAC implementation
+EVP_MAC_POLY1305 - The Poly1305 EVP_MAC implementation
 
 =head1 DESCRIPTION
 
-Support for computing SipHash MACs through the B<EVP_MAC> API.
+Support for computing Poly1305 MACs through the B<EVP_MAC> API.
 
 =head2 Numeric identity
 
-B<EVP_MAC_SIPHASH> is the numeric identity for this implementation,
+B<EVP_MAC_POLY1305> is the numeric identity for this implementation,
 and can be used in functions like EVP_MAC_CTX_new_id() and
 EVP_get_macbynid().
 
@@ -19,12 +19,6 @@ EVP_get_macbynid().
 The supported controls are:
 
 =over 4
-
-=item B<EVP_MAC_CTRL_SET_SIZE>
-
-EVP_MAC_ctrl_str() type string: "digestsize"
-
-The value string is expected to contain a decimal number.
 
 =item B<EVP_MAC_CTRL_SET_KEY>
 
