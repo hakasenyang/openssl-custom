@@ -49,6 +49,14 @@
 #define NID_gmac                1195
 #define OBJ_gmac                OBJ_iso,0L,9797L,3L,4L
 
+#define SN_kmac128              "KMAC128"
+#define LN_kmac128              "kmac128"
+#define NID_kmac128             1196
+
+#define SN_kmac256              "KMAC256"
+#define LN_kmac256              "kmac256"
+#define NID_kmac256             1197
+
 #define SN_hmac_md5             "HMAC-MD5"
 #define LN_hmac_md5             "hmac-md5"
 #define NID_hmac_md5            780
@@ -4818,7 +4826,7 @@
 
 #define SN_chacha20_poly1305_draft      "ChaCha20-Poly1305-D"
 #define LN_chacha20_poly1305_draft      "chacha20-poly1305-draft"
-#define NID_chacha20_poly1305_draft     1195
+#define NID_chacha20_poly1305_draft     1198
 
 #define SN_dhpublicnumber               "dhpublicnumber"
 #define LN_dhpublicnumber               "X9.42 DH"

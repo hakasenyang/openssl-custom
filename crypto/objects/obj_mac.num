@@ -1193,4 +1193,6 @@ magma_mac		1192
 hmacWithSHA512_224		1193
 hmacWithSHA512_256		1194
 gmac		1195
-chacha20_poly1305_draft		1196
+kmac128		1196
+kmac256		1197
+chacha20_poly1305_draft		1198
