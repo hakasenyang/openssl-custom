@@ -386,9 +386,11 @@ _____
 _____
 
     if (defined $version) {
-        my ($libvmajor, $libvminor) = $version =~ /^(\d+)_(\d+)$/;
+        $version =~ /^(\d+)\.(\d+)\.(\d+)/;
+        my $libvmajor = $1;
+        my $libvminor = $2 * 100 + $3;
         print <<"_____";
-GSMATCH=LEQUAL,$libvmajor,$libvminor;
+GSMATCH=LEQUAL,$libvmajor,$libvminor
 _____
     }
 }

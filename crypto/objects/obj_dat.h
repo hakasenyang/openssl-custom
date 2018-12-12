@@ -1079,7 +1079,7 @@ static const unsigned char so[7767] = {
     0x28,0xCC,0x45,0x03,0x04,                      /* [ 7761] OBJ_gmac */
 };
 
-#define NUM_NID 1199
+#define NUM_NID 1202
 static const ASN1_OBJECT nid_objs[NUM_NID] = {
     {"UNDEF", "undefined", NID_undef},
     {"rsadsi", "RSA Data Security, Inc.", NID_rsadsi, 6, &so[0]},
@@ -2279,10 +2279,13 @@ static const ASN1_OBJECT nid_objs[NUM_NID] = {
     {"GMAC", "gmac", NID_gmac, 5, &so[7761]},
     {"KMAC128", "kmac128", NID_kmac128},
     {"KMAC256", "kmac256", NID_kmac256},
+    {"AES-128-SIV", "aes-128-siv", NID_aes_128_siv},
+    {"AES-192-SIV", "aes-192-siv", NID_aes_192_siv},
+    {"AES-256-SIV", "aes-256-siv", NID_aes_256_siv},
     {"ChaCha20-Poly1305-D", "chacha20-poly1305-draft", NID_chacha20_poly1305_draft },
 };
 
-#define NUM_SN 1190
+#define NUM_SN 1193
 static const unsigned int sn_objs[NUM_SN] = {
      364,    /* "AD_DVCS" */
      419,    /* "AES-128-CBC" */
@@ -2295,6 +2298,7 @@ static const unsigned int sn_objs[NUM_SN] = {
      418,    /* "AES-128-ECB" */
      958,    /* "AES-128-OCB" */
      420,    /* "AES-128-OFB" */
+    1198,    /* "AES-128-SIV" */
      913,    /* "AES-128-XTS" */
      423,    /* "AES-192-CBC" */
      917,    /* "AES-192-CBC-HMAC-SHA1" */
@@ -2306,6 +2310,7 @@ static const unsigned int sn_objs[NUM_SN] = {
      422,    /* "AES-192-ECB" */
      959,    /* "AES-192-OCB" */
      424,    /* "AES-192-OFB" */
+    1199,    /* "AES-192-SIV" */
      427,    /* "AES-256-CBC" */
      918,    /* "AES-256-CBC-HMAC-SHA1" */
      950,    /* "AES-256-CBC-HMAC-SHA256" */
@@ -2316,6 +2321,7 @@ static const unsigned int sn_objs[NUM_SN] = {
      426,    /* "AES-256-ECB" */
      960,    /* "AES-256-OCB" */
      428,    /* "AES-256-OFB" */
+    1200,    /* "AES-256-SIV" */
      914,    /* "AES-256-XTS" */
     1066,    /* "ARIA-128-CBC" */
     1120,    /* "ARIA-128-CCM" */
@@ -2400,7 +2406,7 @@ static const unsigned int sn_objs[NUM_SN] = {
      417,    /* "CSPName" */
     1019,    /* "ChaCha20" */
     1018,    /* "ChaCha20-Poly1305" */
-    1198,    /* "chacha20-poly1305-draft" */
+    1201,    /* "chacha20-poly1305-draft" */
      367,    /* "CrlID" */
      391,    /* "DC" */
       31,    /* "DES-CBC" */
@@ -3476,7 +3482,7 @@ static const unsigned int sn_objs[NUM_SN] = {
     1093,    /* "x509ExtAdmission" */
 };
 
-#define NUM_LN 1190
+#define NUM_LN 1193
 static const unsigned int ln_objs[NUM_LN] = {
      363,    /* "AD Time Stamping" */
      405,    /* "ANSI X9.62" */
@@ -3703,6 +3709,7 @@ static const unsigned int ln_objs[NUM_LN] = {
      895,    /* "aes-128-gcm" */
      958,    /* "aes-128-ocb" */
      420,    /* "aes-128-ofb" */
+    1198,    /* "aes-128-siv" */
      913,    /* "aes-128-xts" */
      423,    /* "aes-192-cbc" */
      917,    /* "aes-192-cbc-hmac-sha1" */
@@ -3716,6 +3723,7 @@ static const unsigned int ln_objs[NUM_LN] = {
      898,    /* "aes-192-gcm" */
      959,    /* "aes-192-ocb" */
      424,    /* "aes-192-ofb" */
+    1199,    /* "aes-192-siv" */
      427,    /* "aes-256-cbc" */
      918,    /* "aes-256-cbc-hmac-sha1" */
      950,    /* "aes-256-cbc-hmac-sha256" */
@@ -3728,6 +3736,7 @@ static const unsigned int ln_objs[NUM_LN] = {
      901,    /* "aes-256-gcm" */
      960,    /* "aes-256-ocb" */
      428,    /* "aes-256-ofb" */
+    1200,    /* "aes-256-siv" */
      914,    /* "aes-256-xts" */
      376,    /* "algorithm" */
     1066,    /* "aria-128-cbc" */
@@ -3855,7 +3864,7 @@ static const unsigned int ln_objs[NUM_LN] = {
      883,    /* "certificateRevocationList" */
     1019,    /* "chacha20" */
     1018,    /* "chacha20-poly1305" */
-    1198,    /* "ChaCha20-Poly1305-D" */
+    1201,    /* "ChaCha20-Poly1305-D" */
       54,    /* "challengePassword" */
      407,    /* "characteristic-two-field" */
      395,    /* "clearance" */

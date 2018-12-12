@@ -1195,4 +1195,7 @@ hmacWithSHA512_256		1194
 gmac		1195
 kmac128		1196
 kmac256		1197
-chacha20_poly1305_draft		1198
+aes_128_siv		1198
+aes_192_siv		1199
+aes_256_siv		1200
+chacha20_poly1305_draft		1201

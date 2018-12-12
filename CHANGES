@@ -9,6 +9,9 @@
 
  Changes between 1.1.1 and 3.0.0 [xx XXX xxxx]
 
+  *) Move strictness check from EVP_PKEY_asn1_new() to EVP_PKEY_asn1_add0().
+     [Richard Levitte]
+
   *) Change the license to the Apache License v2.0.
      [Richard Levitte]
 
@@ -32,6 +35,9 @@
        features only (like improving performance or adding documentation)
        and retain API/ABI compatibility.
      [Richard Levitte]
+
+  *) Add support for RFC5297 SIV mode (siv128), including AES-SIV.
+     [Todd Short]
 
   *) Remove the 'dist' target and add a tarball building script.  The
      'dist' target has fallen out of use, and it shouldn't be
@@ -83,6 +89,11 @@
   *) Added new option for 'openssl list', '-objects', which will display the
      list of built in objects, i.e. OIDs with names.
      [Richard Levitte]
+
+  *) Added support for Linux Kernel TLS data-path. The Linux Kernel data-path
+     improves application performance by removing data copies and providing
+     applications with zero-copy system calls such as sendfile and splice.
+     [Boris Pismenny]
 
  Changes between 1.1.1 and 1.1.1a [20 Nov 2018]
 
@@ -11488,7 +11499,7 @@ des-cbc           3624.96k     5258.21k     5530.91k     5624.30k     5628.26k
      (still largely untested)
      [Bodo Moeller]
 
-  *) New function ANS1_tag2str() to convert an ASN1 tag to a descriptive
+  *) New function ASN1_tag2str() to convert an ASN1 tag to a descriptive
      ASCII string. This was handled independently in various places before.
      [Steve Henson]
 
