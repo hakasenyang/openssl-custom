@@ -4620,4 +4620,6 @@ CRYPTO_siv128_set_tag                   4575	3_0_0	EXIST::FUNCTION:SIV
 CRYPTO_siv128_get_tag                   4576	3_0_0	EXIST::FUNCTION:SIV
 CRYPTO_siv128_cleanup                   4577	3_0_0	EXIST::FUNCTION:SIV
 CRYPTO_siv128_speed                     4578	3_0_0	EXIST::FUNCTION:SIV
-EVP_chacha20_poly1305_draft             4579	3_0_0	EXIST::FUNCTION:CHACHA,POLY1305_DRAFT
+OPENSSL_INIT_set_config_filename        4579	3_0_0	EXIST::FUNCTION:STDIO
+OPENSSL_INIT_set_config_file_flags      4580	3_0_0	EXIST::FUNCTION:STDIO
+EVP_chacha20_poly1305_draft             4581	3_0_0	EXIST::FUNCTION:CHACHA,POLY1305_DRAFT

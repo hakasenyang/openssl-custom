@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2018 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2016-2019 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -436,7 +436,7 @@ int mempacket_test_inject(BIO *bio, const char *in, int inl, int pktnum,
 {
     MEMPACKET_TEST_CTX *ctx = BIO_get_data(bio);
     MEMPACKET *thispkt = NULL, *looppkt, *nextpkt, *allpkts[3];
-    int i, duprec = ctx->duprec > 0;
+    int i, duprec;
     const unsigned char *inu = (const unsigned char *)in;
     size_t len = ((inu[RECORD_LEN_HI] << 8) | inu[RECORD_LEN_LO])
                  + DTLS1_RT_HEADER_LENGTH;
@@ -449,6 +449,8 @@ int mempacket_test_inject(BIO *bio, const char *in, int inl, int pktnum,
 
     if ((size_t)inl == len)
         duprec = 0;
+    else
+        duprec = ctx->duprec > 0;
 
     /* We don't support arbitrary injection when duplicating records */
     if (duprec && pktnum != -1)
@@ -663,7 +665,7 @@ int create_ssl_ctx_pair(const SSL_METHOD *sm, const SSL_METHOD *cm,
 
 #define MAXLOOPS    1000000
 
-#ifndef OPENSSL_NO_KTLS
+#if !defined(OPENSSL_NO_KTLS) && !defined(OPENSSL_NO_SOCK)
 static int set_nb(int fd)
 {
     int flags;
@@ -736,12 +738,6 @@ success:
             close(afd);
     return ret;
 }
-#else
-int create_test_sockets(int *cfd, int *sfd)
-{
-    return 0;
-}
-#endif
 
 int create_ssl_objects2(SSL_CTX *serverctx, SSL_CTX *clientctx, SSL **sssl,
                           SSL **cssl, int sfd, int cfd)
@@ -775,6 +771,7 @@ int create_ssl_objects2(SSL_CTX *serverctx, SSL_CTX *clientctx, SSL **sssl,
     BIO_free(c_to_s_bio);
     return 0;
 }
+#endif
 
 /*
  * NOTE: Transfers control of the BIOs - this function will free them on error
