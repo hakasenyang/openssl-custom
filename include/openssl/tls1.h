@@ -32,16 +32,6 @@ extern "C" {
 #  define TLS_MAX_VERSION                TLS1_3_VERSION
 # endif
 
-/* TODO(TLS1.3) REMOVE ME: Version indicators for draft version */
-# define TLS1_3_VERSION_DRAFT_23         0x7f17
-# define TLS1_3_VERSION_DRAFT_26         0x7f1a
-# define TLS1_3_VERSION_DRAFT_27         0x7f1b
-# define TLS1_3_VERSION_DRAFT            0x7f1c
-# define TLS1_3_VERSION_DRAFT_TXT_23     "TLS 1.3 (draft 23)"
-# define TLS1_3_VERSION_DRAFT_TXT_26     "TLS 1.3 (draft 26)"
-# define TLS1_3_VERSION_DRAFT_TXT_27     "TLS 1.3 (draft 27)"
-# define TLS1_3_VERSION_DRAFT_TXT        "TLS 1.3 (draft 28)"
-
 /* Special value for method supporting multiple versions */
 # define TLS_ANY_VERSION                 0x10000
 

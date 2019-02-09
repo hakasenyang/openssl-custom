@@ -1770,8 +1770,6 @@ int ssl_choose_server_version(SSL *s, CLIENTHELLO_MSG *hello, DOWNGRADE *dgrd)
         unsigned int best_vers = 0;
         const SSL_METHOD *best_method = NULL;
         PACKET versionslist;
-        /* TODO(TLS1.3): Remove this before release */
-        unsigned int orig_candidate = 0;
 
         suppversions->parsed = 1;
 
@@ -1793,23 +1791,6 @@ int ssl_choose_server_version(SSL *s, CLIENTHELLO_MSG *hello, DOWNGRADE *dgrd)
             return SSL_R_BAD_LEGACY_VERSION;
 
         while (PACKET_get_net_2(&versionslist, &candidate_vers)) {
-            /* TODO(TLS1.3): Remove this before release */
-            if (candidate_vers == TLS1_3_VERSION
-                    || candidate_vers == TLS1_3_VERSION_DRAFT
-                    || candidate_vers == TLS1_3_VERSION_DRAFT_26
-                    || candidate_vers == TLS1_3_VERSION_DRAFT_23) {
-                if (best_vers == TLS1_3_VERSION
-                        && (orig_candidate > candidate_vers
-                        || orig_candidate == TLS1_3_VERSION))
-                    continue;
-                orig_candidate = candidate_vers;
-                candidate_vers = TLS1_3_VERSION;
-            }
-            /*
-             * TODO(TLS1.3): There is some discussion on the TLS list about
-             * whether to ignore versions <TLS1.2 in supported_versions. At the
-             * moment we honour them if present. To be reviewed later
-             */
             if (version_cmp(s, candidate_vers, best_vers) <= 0)
                 continue;
             if (ssl_version_supported(s, candidate_vers, &best_method))
@@ -1832,9 +1813,6 @@ int ssl_choose_server_version(SSL *s, CLIENTHELLO_MSG *hello, DOWNGRADE *dgrd)
             }
             check_for_downgrade(s, best_vers, dgrd);
             s->version = best_vers;
-            /* TODO(TLS1.3): Remove this before release */
-            if (best_vers == TLS1_3_VERSION)
-                s->version_draft = orig_candidate;
             s->method = best_method;
             return 0;
         }

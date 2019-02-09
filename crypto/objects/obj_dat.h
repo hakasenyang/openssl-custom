@@ -1079,7 +1079,7 @@ static const unsigned char so[7767] = {
     0x28,0xCC,0x45,0x03,0x04,                      /* [ 7761] OBJ_gmac */
 };
 
-#define NUM_NID 1202
+#define NUM_NID 1204
 static const ASN1_OBJECT nid_objs[NUM_NID] = {
     {"UNDEF", "undefined", NID_undef},
     {"rsadsi", "RSA Data Security, Inc.", NID_rsadsi, 6, &so[0]},
@@ -2282,10 +2282,12 @@ static const ASN1_OBJECT nid_objs[NUM_NID] = {
     {"AES-128-SIV", "aes-128-siv", NID_aes_128_siv},
     {"AES-192-SIV", "aes-192-siv", NID_aes_192_siv},
     {"AES-256-SIV", "aes-256-siv", NID_aes_256_siv},
+    {"BLAKE2BMAC", "blake2bmac", NID_blake2bmac},
+    {"BLAKE2SMAC", "blake2smac", NID_blake2smac},
     {"ChaCha20-Poly1305-D", "chacha20-poly1305-draft", NID_chacha20_poly1305_draft },
 };
 
-#define NUM_SN 1193
+#define NUM_SN 1195
 static const unsigned int sn_objs[NUM_SN] = {
      364,    /* "AD_DVCS" */
      419,    /* "AES-128-CBC" */
@@ -2363,6 +2365,8 @@ static const unsigned int sn_objs[NUM_SN] = {
       93,    /* "BF-CFB" */
       92,    /* "BF-ECB" */
       94,    /* "BF-OFB" */
+    1201,    /* "BLAKE2BMAC" */
+    1202,    /* "BLAKE2SMAC" */
     1056,    /* "BLAKE2b512" */
     1057,    /* "BLAKE2s256" */
       14,    /* "C" */
@@ -2406,7 +2410,7 @@ static const unsigned int sn_objs[NUM_SN] = {
      417,    /* "CSPName" */
     1019,    /* "ChaCha20" */
     1018,    /* "ChaCha20-Poly1305" */
-    1201,    /* "chacha20-poly1305-draft" */
+    1203,    /* "chacha20-poly1305-draft" */
      367,    /* "CrlID" */
      391,    /* "DC" */
       31,    /* "DES-CBC" */
@@ -3482,7 +3486,7 @@ static const unsigned int sn_objs[NUM_SN] = {
     1093,    /* "x509ExtAdmission" */
 };
 
-#define NUM_LN 1193
+#define NUM_LN 1195
 static const unsigned int ln_objs[NUM_LN] = {
      363,    /* "AD Time Stamping" */
      405,    /* "ANSI X9.62" */
@@ -3784,7 +3788,9 @@ static const unsigned int ln_objs[NUM_LN] = {
       92,    /* "bf-ecb" */
       94,    /* "bf-ofb" */
     1056,    /* "blake2b512" */
+    1201,    /* "blake2bmac" */
     1057,    /* "blake2s256" */
+    1202,    /* "blake2smac" */
      921,    /* "brainpoolP160r1" */
      922,    /* "brainpoolP160t1" */
      923,    /* "brainpoolP192r1" */
@@ -3864,7 +3870,7 @@ static const unsigned int ln_objs[NUM_LN] = {
      883,    /* "certificateRevocationList" */
     1019,    /* "chacha20" */
     1018,    /* "chacha20-poly1305" */
-    1201,    /* "ChaCha20-Poly1305-D" */
+    1203,    /* "ChaCha20-Poly1305-D" */
       54,    /* "challengePassword" */
      407,    /* "characteristic-two-field" */
      395,    /* "clearance" */

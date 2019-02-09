@@ -173,9 +173,8 @@ int tls13_enc(SSL *s, SSL3_RECORD *recs, size_t n_recs, int sending)
     if (((alg_enc & SSL_AESCCM) != 0
                  && EVP_CipherUpdate(ctx, NULL, &lenu, NULL,
                                      (unsigned int)rec->length) <= 0)
-            || (s->version_draft != TLS1_3_VERSION_DRAFT_23
-                 && EVP_CipherUpdate(ctx, NULL, &lenu, recheader,
-                                     sizeof(recheader)) <= 0)
+            || EVP_CipherUpdate(ctx, NULL, &lenu, recheader,
+                                sizeof(recheader)) <= 0
             || EVP_CipherUpdate(ctx, rec->data, &lenu, rec->input,
                                 (unsigned int)rec->length) <= 0
             || EVP_CipherFinal_ex(ctx, rec->data + lenu, &lenf) <= 0

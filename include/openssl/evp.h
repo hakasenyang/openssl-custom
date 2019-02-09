@@ -959,14 +959,9 @@ const EVP_CIPHER *EVP_sm4_ctr(void);
                         | OPENSSL_INIT_ADD_ALL_DIGESTS, NULL)
 
 #  ifdef OPENSSL_LOAD_CONF
-#   define OpenSSL_add_all_algorithms() \
-    OPENSSL_init_crypto(OPENSSL_INIT_ADD_ALL_CIPHERS \
-                        | OPENSSL_INIT_ADD_ALL_DIGESTS \
-                        | OPENSSL_INIT_LOAD_CONFIG, NULL)
+#   define OpenSSL_add_all_algorithms() OPENSSL_add_all_algorithms_conf()
 #  else
-#   define OpenSSL_add_all_algorithms() \
-    OPENSSL_init_crypto(OPENSSL_INIT_ADD_ALL_CIPHERS \
-                        | OPENSSL_INIT_ADD_ALL_DIGESTS, NULL)
+#   define OpenSSL_add_all_algorithms() OPENSSL_add_all_algorithms_noconf()
 #  endif
 
 #  define OpenSSL_add_all_ciphers() \
@@ -999,6 +994,8 @@ void EVP_MD_do_all_sorted(void (*fn)
 
 /* MAC stuff */
 
+# define EVP_MAC_BLAKE2B        NID_blake2bmac
+# define EVP_MAC_BLAKE2S        NID_blake2smac
 # define EVP_MAC_CMAC           NID_cmac
 # define EVP_MAC_GMAC           NID_gmac
 # define EVP_MAC_HMAC           NID_hmac
@@ -1043,6 +1040,7 @@ void EVP_MAC_do_all_sorted(void (*fn)
 # define EVP_MAC_CTRL_SET_IV            0x07 /* unsigned char *, size_t */
 # define EVP_MAC_CTRL_SET_CUSTOM        0x08 /* unsigned char *, size_t */
 # define EVP_MAC_CTRL_SET_XOF           0x09 /* int */
+# define EVP_MAC_CTRL_SET_SALT          0x0a /* unsigned char *, size_t */
 
 /* PKEY stuff */
 int EVP_PKEY_decrypt_old(unsigned char *dec_key,
