@@ -411,7 +411,7 @@ based on client preferences. An equal-preference is specified with square
 brackets, combining multiple selectors separated by |. For example:
 
  [ECDHE-ECDSA-CHACHA20-POLY1305|ECDHE-ECDSA-AES128-GCM-SHA256]
- 
+
  Once an equal-preference group is used, future directives must be
  opcode-less.
 
