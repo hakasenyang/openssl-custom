@@ -2284,7 +2284,7 @@ static const ASN1_OBJECT nid_objs[NUM_NID] = {
     {"AES-256-SIV", "aes-256-siv", NID_aes_256_siv},
     {"BLAKE2BMAC", "blake2bmac", NID_blake2bmac},
     {"BLAKE2SMAC", "blake2smac", NID_blake2smac},
-    {"ChaCha20-Poly1305-D", "chacha20-poly1305-draft", NID_chacha20_poly1305_draft },
+    {"ChaCha20-Poly1305-D", "chacha20-poly1305-draft", NID_chacha20_poly1305_draft},
 };
 
 #define NUM_SN 1195
@@ -2410,7 +2410,7 @@ static const unsigned int sn_objs[NUM_SN] = {
      417,    /* "CSPName" */
     1019,    /* "ChaCha20" */
     1018,    /* "ChaCha20-Poly1305" */
-    1203,    /* "chacha20-poly1305-draft" */
+    1203,    /* "ChaCha20-Poly1305-D" */
      367,    /* "CrlID" */
      391,    /* "DC" */
       31,    /* "DES-CBC" */
@@ -3870,7 +3870,7 @@ static const unsigned int ln_objs[NUM_LN] = {
      883,    /* "certificateRevocationList" */
     1019,    /* "chacha20" */
     1018,    /* "chacha20-poly1305" */
-    1203,    /* "ChaCha20-Poly1305-D" */
+    1203,    /* "chacha20-poly1305-draft" */
       54,    /* "challengePassword" */
      407,    /* "characteristic-two-field" */
      395,    /* "clearance" */
