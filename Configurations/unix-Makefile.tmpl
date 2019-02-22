@@ -622,7 +622,7 @@ install_runtime_libs: build_libs
 		: {- output_off() unless windowsdll(); "" -}; \
 		$(ECHO) "install $$s -> $(DESTDIR)$(INSTALLTOP)/bin/$$fn"; \
 		cp $$s $(DESTDIR)$(INSTALLTOP)/bin/$$fn.new; \
-		chmod 644 $(DESTDIR)$(INSTALLTOP)/bin/$$fn.new; \
+		chmod 755 $(DESTDIR)$(INSTALLTOP)/bin/$$fn.new; \
 		mv -f $(DESTDIR)$(INSTALLTOP)/bin/$$fn.new \
 		      $(DESTDIR)$(INSTALLTOP)/bin/$$fn; \
 		: {- output_on() unless windowsdll(); "" -}{- output_off() if windowsdll(); "" -}; \
@@ -721,7 +721,7 @@ generate: generate_apps generate_crypto_bn generate_crypto_objects \
           generate_crypto_conf generate_crypto_asn1 generate_fuzz_oids
 
 .PHONY: doc-nits
-doc-nits:
+doc-nits: build_generated
 	(cd $(SRCDIR); $(PERL) util/find-doc-nits -n -p ) >doc-nits
 	@if [ -s doc-nits ] ; then cat doc-nits ; exit 1; \
 	else echo 'doc-nits: no errors.'; rm doc-nits ; fi
