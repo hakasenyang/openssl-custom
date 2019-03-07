@@ -4830,7 +4830,7 @@
 
 #define SN_chacha20_poly1305_draft              "ChaCha20-Poly1305-D"
 #define LN_chacha20_poly1305_draft              "chacha20-poly1305-draft"
-#define NID_chacha20_poly1305_draft             1203
+#define NID_chacha20_poly1305_draft             1204
 
 #define SN_chacha20             "ChaCha20"
 #define LN_chacha20             "chacha20"
@@ -4994,6 +4994,10 @@
 #define SN_hkdf         "HKDF"
 #define LN_hkdf         "hkdf"
 #define NID_hkdf                1036
+
+#define SN_sshkdf               "SSHKDF"
+#define LN_sshkdf               "sshkdf"
+#define NID_sshkdf              1203
 
 #define SN_id_pkinit            "id-pkinit"
 #define NID_id_pkinit           1031

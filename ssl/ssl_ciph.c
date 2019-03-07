@@ -16,6 +16,7 @@
 #include <openssl/engine.h>
 #include <openssl/crypto.h>
 #include <openssl/conf.h>
+#include <openssl/trace.h>
 #include "internal/nelem.h"
 #include "ssl_locl.h"
 #include "internal/thread_once.h"
@@ -787,12 +788,12 @@ static void ssl_cipher_apply_rule(uint32_t cipher_id, uint32_t alg_mkey,
     const SSL_CIPHER *cp;
     int reverse = 0;
 
-#ifdef CIPHER_DEBUG
-    fprintf(stderr,
-            "Applying rule %d with %08x/%08x/%08x/%08x/%08x %08x (%d) g:%d\n",
-            rule, alg_mkey, alg_auth, alg_enc, alg_mac, min_tls,
-            algo_strength, strength_bits, in_group);
-#endif
+    OSSL_TRACE_BEGIN(TLS_CIPHER){
+        BIO_printf(trc_out,
+                   "Applying rule %d with %08x/%08x/%08x/%08x/%08x %08x (%d) g:%d\n",
+                   rule, alg_mkey, alg_auth, alg_enc, alg_mac, min_tls,
+                   algo_strength, strength_bits, in_group);
+    }
 
     if (rule == CIPHER_DEL || rule == CIPHER_BUMP)
         reverse = 1;            /* needed to maintain sorting between currently
@@ -831,13 +832,14 @@ static void ssl_cipher_apply_rule(uint32_t cipher_id, uint32_t alg_mkey,
             if (strength_bits != cp->strength_bits)
                 continue;
         } else {
-#ifdef CIPHER_DEBUG
-            fprintf(stderr,
-                    "\nName: %s:\nAlgo = %08x/%08x/%08x/%08x/%08x Algo_strength = %08x\n",
-                    cp->name, cp->algorithm_mkey, cp->algorithm_auth,
-                    cp->algorithm_enc, cp->algorithm_mac, cp->min_tls,
-                    cp->algo_strength);
-#endif
+            if (trc_out != NULL) {
+                BIO_printf(trc_out,
+                           "\nName: %s:"
+                           "\nAlgo = %08x/%08x/%08x/%08x/%08x Algo_strength = %08x\n",
+                           cp->name, cp->algorithm_mkey, cp->algorithm_auth,
+                           cp->algorithm_enc, cp->algorithm_mac, cp->min_tls,
+                           cp->algo_strength);
+            }
             if (cipher_id != 0 && (cipher_id != cp->id))
                 continue;
             if (alg_mkey && !(alg_mkey & cp->algorithm_mkey))
@@ -858,9 +860,8 @@ static void ssl_cipher_apply_rule(uint32_t cipher_id, uint32_t alg_mkey,
                 continue;
         }
 
-#ifdef CIPHER_DEBUG
-        fprintf(stderr, "Action = %d\n", rule);
-#endif
+        if (trc_out != NULL)
+            BIO_printf(trc_out, "Action = %d\n", rule);
 
         /* add the cipher if it has not been added yet. */
         if (rule == CIPHER_ADD) {
@@ -913,6 +914,8 @@ static void ssl_cipher_apply_rule(uint32_t cipher_id, uint32_t alg_mkey,
 
     *head_p = head;
     *tail_p = tail;
+
+    OSSL_TRACE_END(TLS_CIPHER);
 }
 
 static int ssl_cipher_strength_sort(CIPHER_ORDER **head_p,
@@ -1663,23 +1666,26 @@ STACK_OF(SSL_CIPHER) *ssl_create_cipher_list(const SSL_METHOD *ssl_method,
     if (!in_group_flags)
         goto err;
 
+    OSSL_TRACE_BEGIN(TLS_CIPHER) {
+        BIO_printf(trc_out, "cipher selection:\n");
+    }
     /*
      * The cipher selection for the list is done. The ciphers are added
      * to the resulting precedence to the STACK_OF(SSL_CIPHER).
      */
     for (curr = head; curr != NULL; curr = curr->next) {
         if (curr->active) {
-            if (!sk_SSL_CIPHER_push(cipherstack, curr->cipher))
+            if (!sk_SSL_CIPHER_push(cipherstack, curr->cipher)) {
+                OSSL_TRACE_CANCEL(TLS_CIPHER);
                 goto err;
+            }
             in_group_flags[num_in_group_flags++] = curr->in_group;
-#ifdef CIPHER_DEBUG
-            fprintf(stderr, "<%s>\n", curr->cipher->name);
-#endif
+            if (trc_out != NULL)
+                BIO_printf(trc_out, "<%s>\n", curr->cipher->name);
         }
     }
-
     OPENSSL_free(co_list);      /* Not needed any longer */
-    co_list = NULL;
+    OSSL_TRACE_END(TLS_CIPHER);
 
     if (!update_cipher_list_by_id(cipher_list_by_id, cipherstack))
         goto err;
@@ -1698,6 +1704,9 @@ STACK_OF(SSL_CIPHER) *ssl_create_cipher_list(const SSL_METHOD *ssl_method,
         ssl_cipher_preference_list_free(*cipher_list);
     *cipher_list = pref_list;
     pref_list = NULL;
+
+    // sk_SSL_CIPHER_free(*cipher_list);
+    // *cipher_list = cipherstack;
 
     return cipherstack;
 

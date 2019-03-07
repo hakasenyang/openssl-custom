@@ -131,7 +131,7 @@ static void impl_cache_free(QUERY *elem)
     OPENSSL_free(elem);
 }
 
-static void alg_cleanup(size_t idx, ALGORITHM *a)
+static void alg_cleanup(ossl_uintmax_t idx, ALGORITHM *a)
 {
     if (a != NULL) {
         sk_IMPLEMENTATION_pop_free(a->impls, &impl_free);
@@ -143,11 +143,12 @@ static void alg_cleanup(size_t idx, ALGORITHM *a)
 
 OSSL_METHOD_STORE *ossl_method_store_new(void)
 {
-    OSSL_METHOD_STORE *res = OPENSSL_zalloc(sizeof(*res));
+    OSSL_METHOD_STORE *res;
 
     if (!RUN_ONCE(&method_store_init_flag, do_method_store_init))
         return 0;
 
+    res = OPENSSL_zalloc(sizeof(*res));
     if (res != NULL) {
         if ((res->algs = ossl_sa_ALGORITHM_new()) == NULL) {
             OPENSSL_free(res);
@@ -355,7 +356,7 @@ int ossl_method_store_set_global_properties(OSSL_METHOD_STORE *store,
     return ret;
 }
 
-static void impl_cache_flush_alg(size_t idx, ALGORITHM *alg)
+static void impl_cache_flush_alg(ossl_uintmax_t idx, ALGORITHM *alg)
 {
     lh_QUERY_doall(alg->cache, &impl_cache_free);
     lh_QUERY_flush(alg->cache);
@@ -412,7 +413,8 @@ static void impl_cache_flush_cache(QUERY *c, IMPL_CACHE_FLUSH *state)
         state->nelem++;
 }
 
-static void impl_cache_flush_one_alg(size_t idx, ALGORITHM *alg, void *v)
+static void impl_cache_flush_one_alg(ossl_uintmax_t idx, ALGORITHM *alg,
+                                     void *v)
 {
     IMPL_CACHE_FLUSH *state = (IMPL_CACHE_FLUSH *)v;
 
