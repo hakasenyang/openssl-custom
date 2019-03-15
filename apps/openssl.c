@@ -54,6 +54,7 @@ static int do_cmd(LHASH_OF(FUNCTION) *prog, int argc, char *argv[]);
 static void list_pkey(void);
 static void list_pkey_meth(void);
 static void list_type(FUNC_TYPE ft, int one);
+static void list_engines(void);
 static void list_disabled(void);
 char *default_config_file = NULL;
 
@@ -125,30 +126,19 @@ typedef struct tracedata_st {
 static size_t internal_trace_cb(const char *buf, size_t cnt,
                                 int category, int cmd, void *vdata)
 {
-    int ret;
+    int ret = 0;
     tracedata *trace_data = vdata;
-    int set_prefix = 0;
+    union {
+        CRYPTO_THREAD_ID tid;
+        unsigned long ltid;
+    } tid;
+    char buffer[256];
 
     switch (cmd) {
     case OSSL_TRACE_CTRL_BEGIN:
+        if (!ossl_assert(!trace_data->ingroup))
+            return 0;
         trace_data->ingroup = 1;
-        set_prefix = 1;
-        break;
-    case OSSL_TRACE_CTRL_DURING:
-        if (!trace_data->ingroup)
-            set_prefix = 1;
-        break;
-    case OSSL_TRACE_CTRL_END:
-        trace_data->ingroup = 0;
-        break;
-    }
-
-    if (set_prefix) {
-        union {
-            CRYPTO_THREAD_ID tid;
-            unsigned long ltid;
-        } tid;
-        char buffer[256];
 
         tid.ltid = 0;
         tid.tid = CRYPTO_THREAD_get_current_id();
@@ -157,8 +147,22 @@ static size_t internal_trace_cb(const char *buf, size_t cnt,
                      OSSL_trace_get_category_name(category));
         BIO_ctrl(trace_data->bio, PREFIX_CTRL_SET_PREFIX,
                  strlen(buffer), buffer);
+        break;
+    case OSSL_TRACE_CTRL_WRITE:
+        if (!ossl_assert(trace_data->ingroup))
+            return 0;
+
+        ret = BIO_write(trace_data->bio, buf, cnt);
+        break;
+    case OSSL_TRACE_CTRL_END:
+        if (!ossl_assert(trace_data->ingroup))
+            return 0;
+        trace_data->ingroup = 0;
+
+        BIO_ctrl(trace_data->bio, PREFIX_CTRL_SET_PREFIX, 0, NULL);
+
+        break;
     }
-    ret = BIO_write(trace_data->bio, buf, cnt);
 
     return ret < 0 ? 0 : ret;
 }
@@ -523,8 +527,8 @@ typedef enum HELPLIST_CHOICE {
     OPT_ERR = -1, OPT_EOF = 0, OPT_HELP, OPT_ONE,
     OPT_COMMANDS, OPT_DIGEST_COMMANDS, OPT_MAC_ALGORITHMS, OPT_OPTIONS,
     OPT_DIGEST_ALGORITHMS, OPT_CIPHER_COMMANDS, OPT_CIPHER_ALGORITHMS,
-    OPT_PK_ALGORITHMS, OPT_PK_METHOD, OPT_DISABLED, OPT_MISSING_HELP,
-    OPT_OBJECTS
+    OPT_PK_ALGORITHMS, OPT_PK_METHOD, OPT_ENGINES, OPT_DISABLED,
+    OPT_MISSING_HELP, OPT_OBJECTS
 } HELPLIST_CHOICE;
 
 const OPTIONS list_options[] = {
@@ -544,6 +548,8 @@ const OPTIONS list_options[] = {
      "List of public key algorithms"},
     {"public-key-methods", OPT_PK_METHOD, '-',
      "List of public key methods"},
+    {"engines", OPT_ENGINES, '-',
+     "List of loaded engines"},
     {"disabled", OPT_DISABLED, '-',
      "List of disabled features"},
     {"missing-help", OPT_MISSING_HELP, '-',
@@ -598,6 +604,9 @@ opthelp:
             break;
         case OPT_PK_METHOD:
             list_pkey_meth();
+            break;
+        case OPT_ENGINES:
+            list_engines();
             break;
         case OPT_DISABLED:
             list_disabled();
@@ -835,6 +844,22 @@ static int SortFnByName(const void *_f1, const void *_f2)
     if (f1->type != f2->type)
         return f1->type - f2->type;
     return strcmp(f1->name, f2->name);
+}
+
+static void list_engines(void)
+{
+#ifndef OPENSSL_NO_ENGINE
+    ENGINE *e;
+
+    BIO_puts(bio_out, "Engines:\n");
+    e = ENGINE_get_first();
+    while (e) {
+        BIO_printf(bio_out, "%s\n", ENGINE_get_id(e));
+        e = ENGINE_get_next(e);
+    }
+#else
+    BIO_puts(bio_out, "Engine support is disabled.\n");
+#endif
 }
 
 static void list_disabled(void)

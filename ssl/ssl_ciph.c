@@ -1685,6 +1685,7 @@ STACK_OF(SSL_CIPHER) *ssl_create_cipher_list(const SSL_METHOD *ssl_method,
         }
     }
     OPENSSL_free(co_list);      /* Not needed any longer */
+    co_list = NULL;
     OSSL_TRACE_END(TLS_CIPHER);
 
     if (!update_cipher_list_by_id(cipher_list_by_id, cipherstack))
@@ -1704,9 +1705,6 @@ STACK_OF(SSL_CIPHER) *ssl_create_cipher_list(const SSL_METHOD *ssl_method,
         ssl_cipher_preference_list_free(*cipher_list);
     *cipher_list = pref_list;
     pref_list = NULL;
-
-    // sk_SSL_CIPHER_free(*cipher_list);
-    // *cipher_list = cipherstack;
 
     return cipherstack;
 

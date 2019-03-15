@@ -2649,21 +2649,14 @@ STACK_OF(SSL_CIPHER) *SSL_CTX_get_ciphers(const SSL_CTX *ctx)
 /*
  * Distinguish between ciphers controlled by set_ciphersuite() and
  * set_cipher_list() when counting.
+ * Enabled "TLS13+AESGCM+AES128" or the others.
  */
 static int cipher_list_tls12_num(STACK_OF(SSL_CIPHER) *sk)
 {
-    int i, num = 0;
-    const SSL_CIPHER *c;
-
     if (sk == NULL)
         return 0;
-    for (i = 0; i < sk_SSL_CIPHER_num(sk); ++i) {
-        c = sk_SSL_CIPHER_value(sk, i);
-        if (c->min_tls >= TLS1_3_VERSION)
-            continue;
-        num++;
-    }
-    return num;
+    else
+        return sk_SSL_CIPHER_num(sk);
 }
 
 /** specify the ciphers to be used by default by the SSL_CTX */
