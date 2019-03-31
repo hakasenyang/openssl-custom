@@ -1080,7 +1080,7 @@ static const unsigned char so[7775] = {
     0x2A,0x81,0x1C,0xCF,0x55,0x01,0x83,0x75,       /* [ 7766] OBJ_SM2_with_SM3 */
 };
 
-#define NUM_NID 1206
+#define NUM_NID 1207
 static const ASN1_OBJECT nid_objs[NUM_NID] = {
     {"UNDEF", "undefined", NID_undef},
     {"rsadsi", "RSA Data Security, Inc.", NID_rsadsi, 6, &so[0]},
@@ -2287,10 +2287,11 @@ static const ASN1_OBJECT nid_objs[NUM_NID] = {
     {"BLAKE2SMAC", "blake2smac", NID_blake2smac},
     {"SSHKDF", "sshkdf", NID_sshkdf},
     {"SM2-SM3", "SM2-with-SM3", NID_SM2_with_SM3, 8, &so[7766]},
+    {"SSKDF", "sskdf", NID_sskdf},
     {"ChaCha20-Poly1305-D", "chacha20-poly1305-draft", NID_chacha20_poly1305_draft},
 };
 
-#define NUM_SN 1197
+#define NUM_SN 1198
 static const unsigned int sn_objs[NUM_SN] = {
      364,    /* "AD_DVCS" */
      419,    /* "AES-128-CBC" */
@@ -2413,7 +2414,7 @@ static const unsigned int sn_objs[NUM_SN] = {
      417,    /* "CSPName" */
     1019,    /* "ChaCha20" */
     1018,    /* "ChaCha20-Poly1305" */
-    1205,    /* "ChaCha20-Poly1305-D" */
+    1206,    /* "ChaCha20-Poly1305-D" */
      367,    /* "CrlID" */
      391,    /* "DC" */
       31,    /* "DES-CBC" */
@@ -2579,6 +2580,7 @@ static const unsigned int sn_objs[NUM_SN] = {
      100,    /* "SN" */
     1006,    /* "SNILS" */
     1203,    /* "SSHKDF" */
+    1205,    /* "SSKDF" */
       16,    /* "ST" */
      143,    /* "SXNetID" */
     1062,    /* "SipHash" */
@@ -3491,7 +3493,7 @@ static const unsigned int sn_objs[NUM_SN] = {
     1093,    /* "x509ExtAdmission" */
 };
 
-#define NUM_LN 1197
+#define NUM_LN 1198
 static const unsigned int ln_objs[NUM_LN] = {
      363,    /* "AD Time Stamping" */
      405,    /* "ANSI X9.62" */
@@ -3876,7 +3878,7 @@ static const unsigned int ln_objs[NUM_LN] = {
      883,    /* "certificateRevocationList" */
     1019,    /* "chacha20" */
     1018,    /* "chacha20-poly1305" */
-    1205,    /* "chacha20-poly1305-draft" */
+    1206,    /* "chacha20-poly1305-draft" */
       54,    /* "challengePassword" */
      407,    /* "characteristic-two-field" */
      395,    /* "clearance" */
@@ -4644,6 +4646,7 @@ static const unsigned int ln_objs[NUM_LN] = {
     1133,    /* "sm4-ecb" */
     1135,    /* "sm4-ofb" */
     1203,    /* "sshkdf" */
+    1205,    /* "sskdf" */
       16,    /* "stateOrProvinceName" */
      660,    /* "streetAddress" */
      498,    /* "subtreeMaximumQuality" */
