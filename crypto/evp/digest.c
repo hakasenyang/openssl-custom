@@ -83,6 +83,7 @@ void EVP_MD_CTX_free(EVP_MD_CTX *ctx)
     EVP_MD_meth_free(ctx->fetched_digest);
     ctx->fetched_digest = NULL;
     ctx->digest = NULL;
+    ctx->reqdigest = NULL;
 
     OPENSSL_free(ctx);
     return;
@@ -105,6 +106,9 @@ int EVP_DigestInit_ex(EVP_MD_CTX *ctx, const EVP_MD *type, ENGINE *impl)
     ENGINE *tmpimpl = NULL;
 
     EVP_MD_CTX_clear_flags(ctx, EVP_MD_CTX_FLAG_CLEANED);
+
+    if (type != NULL)
+        ctx->reqdigest = type;
 
     /* TODO(3.0): Legacy work around code below. Remove this */
 #ifndef OPENSSL_NO_ENGINE
@@ -141,6 +145,7 @@ int EVP_DigestInit_ex(EVP_MD_CTX *ctx, const EVP_MD *type, ENGINE *impl)
     if (type->prov == NULL) {
         switch(type->type) {
         case NID_sha256:
+        case NID_md2:
             break;
         default:
             goto legacy;
@@ -545,6 +550,11 @@ static void *evp_md_from_dispatch(int mdtype, const OSSL_DISPATCH *fns,
                 break;
             md->size = OSSL_get_OP_digest_size(fns);
             break;
+        case OSSL_FUNC_DIGEST_BLOCK_SIZE:
+            if (md->dblock_size != NULL)
+                break;
+            md->dblock_size = OSSL_get_OP_digest_block_size(fns);
+            break;
         }
     }
     if ((fncnt != 0 && fncnt != 5)
@@ -576,10 +586,17 @@ static void evp_md_free(void *md)
     EVP_MD_meth_free(md);
 }
 
+static int evp_md_nid(void *vmd)
+{
+    EVP_MD *md = vmd;
+
+    return md->type;
+}
+
 EVP_MD *EVP_MD_fetch(OPENSSL_CTX *ctx, const char *algorithm,
                      const char *properties)
 {
     return evp_generic_fetch(ctx, OSSL_OP_DIGEST, algorithm, properties,
                              evp_md_from_dispatch, evp_md_upref,
-                             evp_md_free);
+                             evp_md_free, evp_md_nid);
 }

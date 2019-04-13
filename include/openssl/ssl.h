@@ -501,7 +501,7 @@ typedef int (*SSL_async_callback_fn)(SSL *s, void *arg);
  */
 # define SSL_MODE_ASYNC 0x00000100U
 /*
- * Use the kernel TLS transmission data-path.
+ * Don't use the kernel TLS data-path for sending.
  */
 # define SSL_MODE_NO_KTLS_TX 0x00000200U
 /*
@@ -516,6 +516,10 @@ typedef int (*SSL_async_callback_fn)(SSL *s, void *arg);
  * - OpenSSL 1.1.1 and 1.1.1a
  */
 # define SSL_MODE_DTLS_SCTP_LABEL_LENGTH_BUG 0x00000400U
+/*
+ * Don't use the kernel TLS data-path for receiving.
+ */
+# define SSL_MODE_NO_KTLS_RX 0x00000800U
 
 /* Cert related flags */
 /*
@@ -1506,6 +1510,7 @@ __owur SSL_CTX *SSL_CTX_new(const SSL_METHOD *meth);
 int SSL_CTX_up_ref(SSL_CTX *ctx);
 void SSL_CTX_free(SSL_CTX *);
 __owur long SSL_CTX_set_timeout(SSL_CTX *ctx, long t);
+__owur long SSL_CTX_set_timeout_tls13(SSL_CTX *ctx, long t);
 __owur long SSL_CTX_get_timeout(const SSL_CTX *ctx);
 __owur X509_STORE *SSL_CTX_get_cert_store(const SSL_CTX *);
 void SSL_CTX_set_cert_store(SSL_CTX *, X509_STORE *);

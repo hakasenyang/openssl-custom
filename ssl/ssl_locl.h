@@ -810,6 +810,7 @@ struct ssl_ctx_st {
      * things up
      */
     long session_timeout;
+    long session_timeout_tls13;
     /*
      * If this callback is not null, it will be called each time a session id
      * is added to the cache.  If this function returns 1, it means that the
@@ -1565,7 +1566,7 @@ typedef struct cert_pkey_st CERT_PKEY;
  * CERT_PKEY entries
  */
 typedef struct {
-    int nid; /* NID of pubic key algorithm */
+    int nid; /* NID of public key algorithm */
     uint32_t amask; /* authmask corresponding to key type */
 } SSL_CERT_LOOKUP;
 

@@ -400,10 +400,13 @@ int ssl_get_new_session(SSL *s, int session)
     }
 
     /* If the context has a default timeout, use it */
-    if (s->session_ctx->session_timeout == 0)
+    if (s->session_ctx->session_timeout == 0 || s->session_ctx->session_timeout_tls13 == 0)
         ss->timeout = SSL_get_default_timeout(s);
     else
-        ss->timeout = s->session_ctx->session_timeout;
+        if (SSL_IS_TLS13(s))
+            ss->timeout = s->session_ctx->session_timeout_tls13;
+        else
+            ss->timeout = s->session_ctx->session_timeout;
 
     SSL_SESSION_free(s->session);
     s->session = NULL;
@@ -1024,11 +1027,24 @@ long SSL_CTX_set_timeout(SSL_CTX *s, long t)
     return l;
 }
 
+long SSL_CTX_set_timeout_tls13(SSL_CTX *s, long t)
+{
+    long l;
+    if (s == NULL)
+        return 0;
+    l = s->session_timeout_tls13;
+    s->session_timeout_tls13 = t;
+    return l;
+}
+
 long SSL_CTX_get_timeout(const SSL_CTX *s)
 {
     if (s == NULL)
         return 0;
-    return s->session_timeout;
+    if (SSL_IS_TLS13(s) && s->session_timeout_tls13)
+        return s->session_timeout_tls13;
+    else
+        return s->session_timeout;
 }
 
 int SSL_set_session_secret_cb(SSL *s,
