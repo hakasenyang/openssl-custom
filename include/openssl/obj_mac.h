@@ -4306,7 +4306,7 @@
 
 #define SN_id_tc26_wrap_gostr3412_2015_kuznyechik_kexp15                "id-tc26-wrap-gostr3412-2015-kuznyechik-kexp15"
 #define NID_id_tc26_wrap_gostr3412_2015_kuznyechik_kexp15               1183
-#define OBJ_id_tc26_wrap_gostr3412_2015_kuznyechik_kexp15               OBJ_id_tc26_wrap_gostr3412_2015_magma,1L
+#define OBJ_id_tc26_wrap_gostr3412_2015_kuznyechik_kexp15               OBJ_id_tc26_wrap_gostr3412_2015_kuznyechik,1L
 
 #define SN_id_tc26_constants            "id-tc26-constants"
 #define NID_id_tc26_constants           994
@@ -4835,7 +4835,7 @@
 
 #define SN_chacha20_poly1305_draft              "ChaCha20-Poly1305-D"
 #define LN_chacha20_poly1305_draft              "chacha20-poly1305-draft"
-#define NID_chacha20_poly1305_draft             1206
+#define NID_chacha20_poly1305_draft             1207
 
 #define SN_chacha20             "ChaCha20"
 #define LN_chacha20             "chacha20"
@@ -5007,6 +5007,10 @@
 #define SN_sskdf                "SSKDF"
 #define LN_sskdf                "sskdf"
 #define NID_sskdf               1205
+
+#define SN_x963kdf              "X963KDF"
+#define LN_x963kdf              "x963kdf"
+#define NID_x963kdf             1206
 
 #define SN_id_pkinit            "id-pkinit"
 #define NID_id_pkinit           1031

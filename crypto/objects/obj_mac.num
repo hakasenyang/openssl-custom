@@ -1203,4 +1203,5 @@ blake2smac		1202
 sshkdf		1203
 SM2_with_SM3		1204
 sskdf		1205
-chacha20_poly1305_draft		1206
+x963kdf		1206
+chacha20_poly1305_draft		1207
