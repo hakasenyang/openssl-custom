@@ -1,15 +1,20 @@
 SUBDIRS=ossl_shim
-{-
-     use File::Spec::Functions;
-     sub rebase_files
-     {
-         my ($base, $files) = @_;
-         return join(" ", map { "$base/$_" } split(/\s+/, $files));
-     }
-     our $apps_aux_src =
-         join(' ', map { "../apps/$_" } split(/\s+/, $target{apps_aux_src}));
-     ""
--}
+
+# TODO: use ../apps/libapps.a instead of direct ../apps source.
+# This can't currently be done, because some of its units drag in too many
+# unresolved references that don't apply here.  Most of all, ../apps/apps.c
+# needs to be divided in smaller pieces to be useful here.
+#
+# Auxilliary program source (copied from ../apps/build.info)
+IF[{- $config{target} =~ /^(?:VC-|mingw)/ -}]
+  # It's called 'init', but doesn't have much 'init' in it...
+  $AUXLIBAPPSSRC=../apps/win32_init.c
+ENDIF
+IF[{- $config{target} =~ /^vms-/ -}]
+  $AUXLIBAPPSSRC=../apps/vms_term_sock.c ../apps/vms_decc_argv.c
+ENDIF
+$LIBAPPSSRC=../apps/opt.c ../apps/bf_prefix.c $AUXLIBAPPSSRC
+
 IF[{- !$disabled{tests} -}]
   LIBS{noinst,has_main}=libtestutil.a
   SOURCE[libtestutil.a]=testutil/basic_output.c testutil/output_helpers.c \
@@ -17,7 +22,7 @@ IF[{- !$disabled{tests} -}]
           testutil/format_output.c testutil/tap_bio.c \
           testutil/test_cleanup.c testutil/main.c testutil/init.c \
           testutil/options.c testutil/test_options.c \
-          testutil/apps_mem.c ../apps/opt.c {- $apps_aux_src; -}
+          testutil/apps_mem.c $LIBAPPSSRC
   INCLUDE[libtestutil.a]=../include ../apps/include ..
   DEPEND[libtestutil.a]=../libcrypto
 
@@ -182,6 +187,9 @@ IF[{- !$disabled{tests} -}]
   SOURCE[evp_test]=evp_test.c
   INCLUDE[evp_test]=../include ../apps/include
   DEPEND[evp_test]=../libcrypto libtestutil.a
+  IF[{- $disabled{legacy} || !$target{dso_scheme} -}]
+    DEFINE[evp_test]=NO_LEGACY_MODULE
+  ENDIF
 
   SOURCE[evp_extra_test]=evp_extra_test.c
   INCLUDE[evp_extra_test]=../include ../apps/include ../crypto/include
@@ -363,13 +371,13 @@ IF[{- !$disabled{tests} -}]
   DEPEND[recordlentest]=../libcrypto ../libssl libtestutil.a
 
   SOURCE[drbgtest]=drbgtest.c
-  INCLUDE[drbgtest]=../include ../apps/include
+  INCLUDE[drbgtest]=../include ../apps/include ../crypto/include
   DEPEND[drbgtest]=../libcrypto.a libtestutil.a
 
   SOURCE[drbg_cavs_test]=drbg_cavs_test.c drbg_cavs_data_ctr.c \
                          drbg_cavs_data_hash.c drbg_cavs_data_hmac.c
 
-  INCLUDE[drbg_cavs_test]=../include ../apps/include . ..
+  INCLUDE[drbg_cavs_test]=../include ../apps/include . .. ../crypto/include
   DEPEND[drbg_cavs_test]=../libcrypto libtestutil.a
 
   SOURCE[x509_dup_cert_test]=x509_dup_cert_test.c
@@ -634,6 +642,11 @@ IF[{- !$disabled{tests} -}]
   SOURCE[params_test]=params_test.c
   INCLUDE[params_test]=.. ../include ../apps/include
   DEPEND[params_test]=../libcrypto.a libtestutil.a
+
+  PROGRAMS{noinst}=namemap_internal_test
+  SOURCE[namemap_internal_test]=namemap_internal_test.c
+  INCLUDE[namemap_internal_test]=.. ../include ../apps/include
+  DEPEND[namemap_internal_test]=../libcrypto.a libtestutil.a
 ENDIF
 
 {-

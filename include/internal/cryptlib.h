@@ -14,9 +14,10 @@
 # include <string.h>
 
 # ifdef OPENSSL_USE_APPLINK
-#  undef BIO_FLAGS_UPLINK
-#  define BIO_FLAGS_UPLINK 0x8000
+#  define BIO_FLAGS_UPLINK_INTERNAL 0x8000
 #  include "ms/uplink.h"
+# else
+#  define BIO_FLAGS_UPLINK_INTERNAL 0
 # endif
 
 # include <openssl/crypto.h>
@@ -146,12 +147,19 @@ typedef struct ossl_ex_data_global_st {
 # define OPENSSL_CTX_PROPERTY_DEFN_INDEX            2
 # define OPENSSL_CTX_PROPERTY_STRING_INDEX          3
 # define OPENSSL_CTX_NAMEMAP_INDEX                  4
-# define OPENSSL_CTX_MAX_INDEXES                    5
+# define OPENSSL_CTX_DRBG_INDEX                     5
+# define OPENSSL_CTX_DRBG_NONCE_INDEX               6
+# define OPENSSL_CTX_RAND_CRNGT_INDEX               7
+# define OPENSSL_CTX_THREAD_EVENT_HANDLER_INDEX     8
+# define OPENSSL_CTX_FIPS_PROV_INDEX                9
+# define OPENSSL_CTX_MAX_INDEXES                   10
 
 typedef struct openssl_ctx_method {
     void *(*new_func)(OPENSSL_CTX *ctx);
     void (*free_func)(void *);
 } OPENSSL_CTX_METHOD;
+
+OPENSSL_CTX *openssl_ctx_get_concrete(OPENSSL_CTX *ctx);
 
 /* Functions to retrieve pointers to data by index */
 void *openssl_ctx_get_data(OPENSSL_CTX *, int /* index */,

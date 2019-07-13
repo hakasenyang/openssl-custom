@@ -1204,4 +1204,5 @@ sshkdf		1203
 SM2_with_SM3		1204
 sskdf		1205
 x963kdf		1206
-chacha20_poly1305_draft		1207
+x942kdf		1207
+chacha20_poly1305_draft		1208
