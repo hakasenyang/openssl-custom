@@ -103,6 +103,7 @@ int BN_rand_ex(BIGNUM *rnd, int bits, int top, int bottom, BN_CTX *ctx)
 {
     return bnrand(NORMAL, rnd, bits, top, bottom, ctx);
 }
+#ifndef FIPS_MODE
 int BN_rand(BIGNUM *rnd, int bits, int top, int bottom)
 {
     return bnrand(NORMAL, rnd, bits, top, bottom, NULL);
@@ -112,16 +113,19 @@ int BN_bntest_rand(BIGNUM *rnd, int bits, int top, int bottom)
 {
     return bnrand(TESTING, rnd, bits, top, bottom, NULL);
 }
+#endif
 
 int BN_priv_rand_ex(BIGNUM *rnd, int bits, int top, int bottom, BN_CTX *ctx)
 {
     return bnrand(PRIVATE, rnd, bits, top, bottom, ctx);
 }
 
+#ifndef FIPS_MODE
 int BN_priv_rand(BIGNUM *rnd, int bits, int top, int bottom)
 {
     return bnrand(PRIVATE, rnd, bits, top, bottom, NULL);
 }
+#endif
 
 /* random number r:  0 <= r < range */
 static int bnrand_range(BNRAND_FLAG flag, BIGNUM *r, const BIGNUM *range,
@@ -195,16 +199,19 @@ int BN_rand_range_ex(BIGNUM *r, const BIGNUM *range, BN_CTX *ctx)
     return bnrand_range(NORMAL, r, range, ctx);
 }
 
+#ifndef FIPS_MODE
 int BN_rand_range(BIGNUM *r, const BIGNUM *range)
 {
     return bnrand_range(NORMAL, r, range, NULL);
 }
+#endif
 
 int BN_priv_rand_range_ex(BIGNUM *r, const BIGNUM *range, BN_CTX *ctx)
 {
     return bnrand_range(PRIVATE, r, range, ctx);
 }
 
+#ifndef FIPS_MODE
 int BN_priv_rand_range(BIGNUM *r, const BIGNUM *range)
 {
     return bnrand_range(PRIVATE, r, range, NULL);
@@ -219,6 +226,7 @@ int BN_pseudo_rand_range(BIGNUM *r, const BIGNUM *range)
 {
     return BN_rand_range(r, range);
 }
+#endif
 
 /*
  * BN_generate_dsa_nonce generates a random number 0 <= out < range. Unlike
@@ -256,8 +264,7 @@ int BN_generate_dsa_nonce(BIGNUM *out, const BIGNUM *range,
         goto err;
 
     /* We copy |priv| into a local buffer to avoid exposing its length. */
-    todo = sizeof(priv->d[0]) * priv->top;
-    if (todo > sizeof(private_bytes)) {
+    if (BN_bn2binpad(priv, private_bytes, sizeof(private_bytes)) < 0) {
         /*
          * No reasonable DSA or ECDSA key should have a private key this
          * large and we don't handle this case in order to avoid leaking the
@@ -266,8 +273,6 @@ int BN_generate_dsa_nonce(BIGNUM *out, const BIGNUM *range,
         BNerr(BN_F_BN_GENERATE_DSA_NONCE, BN_R_PRIVATE_KEY_TOO_LARGE);
         goto err;
     }
-    memcpy(private_bytes, priv->d, todo);
-    memset(private_bytes + todo, 0, sizeof(private_bytes) - todo);
 
     md = EVP_MD_fetch(libctx, "SHA512", NULL);
     if (md == NULL) {
@@ -302,7 +307,7 @@ int BN_generate_dsa_nonce(BIGNUM *out, const BIGNUM *range,
 
  err:
     EVP_MD_CTX_free(mdctx);
-    EVP_MD_meth_free(md);
+    EVP_MD_free(md);
     OPENSSL_free(k_bytes);
     OPENSSL_cleanse(private_bytes, sizeof(private_bytes));
     return ret;

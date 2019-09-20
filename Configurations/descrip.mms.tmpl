@@ -114,6 +114,7 @@ BLDDIR={- $config{builddir} -}
 # Allow both V and VERBOSE to indicate verbosity.  This only applies
 # to testing.
 VERBOSE=$(V)
+VERBOSE_FAILURE=$(VF)
 
 VERSION={- "$config{full_version}" -}
 MAJOR={- $config{major} -}
@@ -435,10 +436,12 @@ test : tests
         DEFINE BLDTOP {- builddir() -}
         DEFINE RESULT_D {- builddir(qw(test test-runs)) -}
         DEFINE OPENSSL_ENGINES {- builddir("engines") -}
+        DEFINE OPENSSL_MODULES {- builddir("providers") -}
         DEFINE OPENSSL_DEBUG_MEMORY "on"
         IF "$(VERBOSE)" .NES. "" THEN DEFINE VERBOSE "$(VERBOSE)"
         $(PERL) {- sourcefile("test", "run_tests.pl") -} $(TESTS)
         DEASSIGN OPENSSL_DEBUG_MEMORY
+        DEASSIGN OPENSSL_MODULES
         DEASSIGN OPENSSL_ENGINES
         DEASSIGN BLDTOP
         DEASSIGN SRCTOP
@@ -784,15 +787,6 @@ $target : $args{generator}->[0] $deps
 EOF
 	  }
       } else {
-          my $target = platform->asm($args{src});
-          if ($args{generator}->[0] =~ /\.pl$/) {
-              $generator = '$(PERL)'.$generator_incs.' '.$generator;
-          } elsif ($args{generator}->[0] =~ /\.S$/) {
-              $generator = undef;
-          } else {
-              die "Generator type for $src unknown: $generator\n";
-          }
-
           my $cppflags = {
               shlib => '$(LIB_CFLAGS) $(LIB_CPPFLAGS)',
               lib => '$(LIB_CFLAGS) $(LIB_CPPFLAGS)',
@@ -809,6 +803,17 @@ EOF
           my $incs_on = join("\n\t\@ ", @{$incs_cmds[0]}) || '!';
           my $incs_off = join("\n\t\@ ", @{$incs_cmds[1]}) || '!';
           my $defs = join("", map { ",".$_ } @{$args{defs}});
+          my $target = platform->asm($args{src});
+
+          if ($args{generator}->[0] =~ /\.pl$/) {
+              $generator = '$(PERL)'.$generator_incs.' '.$generator
+                  .' '.$cppflags;
+          } elsif ($args{generator}->[0] =~ /\.S$/) {
+              $generator = undef;
+          } else {
+              die "Generator type for $src unknown: $generator\n";
+          }
+
           if (defined($generator)) {
               # If the target is named foo.S in build.info, we want to
               # end up generating foo.s in two steps.
@@ -829,7 +834,11 @@ EOF
               # Otherwise....
               return <<"EOF";
 $target : $args{generator}->[0] $deps
+        \@ $incs_on
+        \@ extradefines = "$defs"
 	$generator \$\@
+        \@ DELETE/SYMBOL/LOCAL extradefines
+        \@ $incs_off
 EOF
           }
           return <<"EOF";

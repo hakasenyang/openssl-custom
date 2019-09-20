@@ -30,7 +30,7 @@
 # include <openssl/ct.h>
 # include "record/record.h"
 # include "statem/statem.h"
-# include "packet_locl.h"
+# include "internal/packet.h"
 # include "internal/dane.h"
 # include "internal/refcount.h"
 # include "internal/tsan_assist.h"
@@ -1684,7 +1684,6 @@ struct ssl_st {
     size_t block_padding;
 
     CRYPTO_RWLOCK *lock;
-    RAND_DRBG *drbg;
 
     /* The number of TLS1.3 tickets to automatically send */
     size_t num_tickets;
@@ -2577,6 +2576,7 @@ __owur int ssl_check_srvr_ecc_cert_and_alg(X509 *x, SSL *s);
 SSL_COMP *ssl3_comp_find(STACK_OF(SSL_COMP) *sk, int n);
 
 __owur const TLS_GROUP_INFO *tls1_group_id_lookup(uint16_t curve_id);
+__owur int tls1_group_id2nid(uint16_t group_id);
 __owur int tls1_check_group_id(SSL *s, uint16_t group_id, int check_own_curves);
 __owur uint16_t tls1_shared_group(SSL *s, int nmatch);
 __owur int tls1_set_groups(uint16_t **pext, size_t *pextlen,

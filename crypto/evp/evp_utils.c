@@ -17,62 +17,65 @@
 #include "internal/evp_int.h"    /* evp_locl.h needs it */
 #include "evp_locl.h"
 
-int evp_do_ciph_getparams(const void *vciph, void *ignored,
-                          OSSL_PARAM params[])
-{
-    const EVP_CIPHER *ciph = vciph;
-
-    if (ciph->prov == NULL)
-        return -2;
-    if (ciph->get_params == NULL)
-        return -1;
-    return ciph->get_params(params);
-}
-
-int evp_do_ciph_ctx_getparams(const void *vciph, void *provctx,
-                              OSSL_PARAM params[])
-{
-    const EVP_CIPHER *ciph = vciph;
-
-    if (ciph->prov == NULL)
-        return -2;
-    if (ciph->ctx_get_params == NULL)
-        return -1;
-    return ciph->ctx_get_params(provctx, params);
-}
-
-int evp_do_ciph_ctx_setparams(const void *vciph, void *provctx,
-                              OSSL_PARAM params[])
-{
-    const EVP_CIPHER *ciph = vciph;
-
-    if (ciph->prov == NULL)
-        return -2;
-    if (ciph->ctx_set_params == NULL)
-        return -1;
-    return ciph->ctx_set_params(provctx, params);
-}
-
-int evp_do_param(const void *method, void *ptr, size_t sz, const char *key,
-                 int datatype,
-                 int (*cb)(const void *method, void *ctx, OSSL_PARAM params[]),
-                 void *cb_ctx)
-{
-    OSSL_PARAM params[2] = {
-        OSSL_PARAM_END,
-        OSSL_PARAM_END
-    };
-    int ret;
-
-    params[0].key = key;
-    params[0].data_type = datatype;
-    params[0].data = ptr;
-    params[0].data_size = sz;
-
-    ret = cb(method, cb_ctx, params);
-    if (ret == -1) {
-        EVPerr(0, EVP_R_CTRL_NOT_IMPLEMENTED);
-        ret = 0;
+/*
+ * EVP_CTRL_RET_UNSUPPORTED = -1 is the returned value from any ctrl function
+ * where the control command isn't supported, and an alternative code path
+ * may be chosen.
+ * Since these functions are used to implement ctrl functionality, we
+ * use the same value, and other callers will have to compensate.
+ */
+#define PARAM_CHECK(obj, func, errfunc)                                        \
+    if (obj == NULL)                                                           \
+        return 0;                                                              \
+    if (obj->prov == NULL)                                                     \
+        return EVP_CTRL_RET_UNSUPPORTED;                                       \
+    if (obj->func == NULL) {                                                   \
+        errfunc();                                                             \
+        return 0;                                                              \
     }
-    return ret;
+
+#define PARAM_FUNC(name, func, type, err)                                      \
+int name (const type *obj, OSSL_PARAM params[])                                \
+{                                                                              \
+    PARAM_CHECK(obj, func, err)                                                \
+    return obj->func(params);                                                  \
 }
+
+#define PARAM_CTX_FUNC(name, func, type, err)                                  \
+int name (const type *obj, void *provctx, OSSL_PARAM params[])                 \
+{                                                                              \
+    PARAM_CHECK(obj, func, err)                                                \
+    return obj->func(provctx, params);                                         \
+}
+
+#define PARAM_FUNCTIONS(type,                                                  \
+                        getname, getfunc,                                      \
+                        getctxname, getctxfunc,                                \
+                        setctxname, setctxfunc)                                \
+    PARAM_FUNC(getname, getfunc, type, geterr)                                 \
+    PARAM_CTX_FUNC(getctxname, getctxfunc, type, geterr)                       \
+    PARAM_CTX_FUNC(setctxname, setctxfunc, type, seterr)
+
+/*
+ * These error functions are a workaround for the error scripts, which
+ * currently require that XXXerr method appears inside a function (not a macro).
+ */
+static void geterr(void)
+{
+    EVPerr(0, EVP_R_CANNOT_GET_PARAMETERS);
+}
+
+static void seterr(void)
+{
+    EVPerr(0, EVP_R_CANNOT_SET_PARAMETERS);
+}
+
+PARAM_FUNCTIONS(EVP_CIPHER,
+                evp_do_ciph_getparams, get_params,
+                evp_do_ciph_ctx_getparams, get_ctx_params,
+                evp_do_ciph_ctx_setparams, set_ctx_params)
+
+PARAM_FUNCTIONS(EVP_MD,
+                evp_do_md_getparams, get_params,
+                evp_do_md_ctx_getparams, get_ctx_params,
+                evp_do_md_ctx_setparams, set_ctx_params)
