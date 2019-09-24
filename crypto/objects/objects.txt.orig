@@ -1548,7 +1548,6 @@ sm-scheme 104 7         : SM4-CTR             : sm4-ctr
 			: AES-192-CBC-HMAC-SHA256	: aes-192-cbc-hmac-sha256
 			: AES-256-CBC-HMAC-SHA256	: aes-256-cbc-hmac-sha256
 			: ChaCha20-Poly1305		: chacha20-poly1305
-			: ChaCha20-Poly1305-D		: chacha20-poly1305-draft
 			: ChaCha20			: chacha20
 
 ISO-US 10046 2 1	: dhpublicnumber		: X9.42 DH

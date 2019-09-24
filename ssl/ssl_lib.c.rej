@@ -1,0 +1,11 @@
+--- ssl/ssl_lib.c
++++ ssl/ssl_lib.c
+@@ -3144,7 +3203,7 @@
+                                 ret->tls13_ciphersuites,
+                                 &ret->cipher_list, &ret->cipher_list_by_id,
+                                 SSL_DEFAULT_CIPHER_LIST, ret->cert)
+-        || sk_SSL_CIPHER_num(ret->cipher_list) <= 0) {
++        || sk_SSL_CIPHER_num(ret->cipher_list->ciphers) <= 0) {
+         SSLerr(SSL_F_SSL_CTX_NEW, SSL_R_LIBRARY_HAS_NO_CIPHERS);
+         goto err2;
+     }

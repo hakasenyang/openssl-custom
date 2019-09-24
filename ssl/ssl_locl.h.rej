@@ -1,0 +1,11 @@
+--- ssl/ssl_locl.h
++++ ssl/ssl_locl.h
+@@ -1358,7 +1397,7 @@
+     /* Per connection DANE state */
+     SSL_DANE dane;
+     /* crypto */
+-    STACK_OF(SSL_CIPHER) *cipher_list;
++    struct ssl_cipher_preference_list_st *cipher_list;
+     STACK_OF(SSL_CIPHER) *cipher_list_by_id;
+     /* TLSv1.3 specific ciphersuites */
+     STACK_OF(SSL_CIPHER) *tls13_ciphersuites;

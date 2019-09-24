@@ -1205,4 +1205,7 @@ SM2_with_SM3		1204
 sskdf		1205
 x963kdf		1206
 x942kdf		1207
-chacha20_poly1305_draft		1208
+id_on_SmtpUTF8Mailbox		1208
+XmppAddr		1209
+SRVName		1210
+chacha20_poly1305_draft		1211
