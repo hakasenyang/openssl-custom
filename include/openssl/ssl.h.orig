@@ -9,8 +9,14 @@
  * https://www.openssl.org/source/license.html
  */
 
-#ifndef HEADER_SSL_H
-# define HEADER_SSL_H
+#ifndef OPENSSL_SSL_H
+# define OPENSSL_SSL_H
+# pragma once
+
+# include <openssl/macros.h>
+# if !OPENSSL_API_3
+#  define HEADER_SSL_H
+# endif
 
 # include <openssl/e_os2.h>
 # include <openssl/opensslconf.h>
@@ -1316,6 +1322,7 @@ DECLARE_PEM_rw(SSL_SESSION, SSL_SESSION)
 # define SSL_CTRL_GET_MAX_PROTO_VERSION          131
 # define SSL_CTRL_GET_SIGNATURE_NID              132
 # define SSL_CTRL_GET_TMP_KEY                    133
+# define SSL_CTRL_GET_NEGOTIATED_GROUP           134
 # define SSL_CERT_SET_FIRST                      1
 # define SSL_CERT_SET_NEXT                       2
 # define SSL_CERT_SET_SERVER                     3
@@ -1415,6 +1422,8 @@ DECLARE_PEM_rw(SSL_SESSION, SSL_SESSION)
         SSL_ctrl(s,SSL_CTRL_SET_GROUPS_LIST,0,(char *)(str))
 # define SSL_get_shared_group(s, n) \
         SSL_ctrl(s,SSL_CTRL_GET_SHARED_GROUP,n,NULL)
+# define SSL_get_negotiated_group(s) \
+        SSL_ctrl(s,SSL_CTRL_GET_NEGOTIATED_GROUP,0,NULL)
 # define SSL_CTX_set1_sigalgs(ctx, slist, slistlen) \
         SSL_CTX_ctrl(ctx,SSL_CTRL_SET_SIGALGS,slistlen,(int *)(slist))
 # define SSL_CTX_set1_sigalgs_list(ctx, s) \
@@ -1687,7 +1696,7 @@ __owur int SSL_has_matching_session_id(const SSL *s,
 SSL_SESSION *d2i_SSL_SESSION(SSL_SESSION **a, const unsigned char **pp,
                              long length);
 
-# ifdef HEADER_X509_H
+# ifdef OPENSSL_X509_H
 __owur X509 *SSL_get_peer_certificate(const SSL *s);
 # endif
 

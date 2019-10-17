@@ -85,7 +85,7 @@ int chopup_args(ARGS *arg, char *buf)
         /* Skip whitespace. */
         while (*p && isspace(_UC(*p)))
             p++;
-        if (!*p)
+        if (*p == '\0')
             break;
 
         /* The start of something good :-) */
@@ -258,7 +258,7 @@ static char *app_get_pass(const char *arg, int keepbio)
 #endif
         } else if (strcmp(arg, "stdin") == 0) {
             pwdbio = dup_bio_in(FORMAT_TEXT);
-            if (!pwdbio) {
+            if (pwdbio == NULL) {
                 BIO_printf(bio_err, "Can't open BIO for stdin\n");
                 return NULL;
             }
@@ -407,7 +407,7 @@ static int load_pkcs12(BIO *in, const char *desc,
     if (PKCS12_verify_mac(p12, "", 0) || PKCS12_verify_mac(p12, NULL, 0)) {
         pass = "";
     } else {
-        if (!pem_cb)
+        if (pem_cb == NULL)
             pem_cb = (pem_password_cb *)password_callback;
         len = pem_cb(tpass, PEM_BUFSIZE, 0, cb_data);
         if (len < 0) {
@@ -1809,26 +1809,46 @@ unsigned char *next_protos_parse(size_t *outlen, const char *in)
     size_t len;
     unsigned char *out;
     size_t i, start = 0;
+    size_t skipped = 0;
 
     len = strlen(in);
-    if (len >= 65535)
+    if (len == 0 || len >= 65535)
         return NULL;
 
-    out = app_malloc(strlen(in) + 1, "NPN buffer");
+    out = app_malloc(len + 1, "NPN buffer");
     for (i = 0; i <= len; ++i) {
         if (i == len || in[i] == ',') {
+            /*
+             * Zero-length ALPN elements are invalid on the wire, we could be
+             * strict and reject the entire string, but just ignoring extra
+             * commas seems harmless and more friendly.
+             *
+             * Every comma we skip in this way puts the input buffer another
+             * byte ahead of the output buffer, so all stores into the output
+             * buffer need to be decremented by the number commas skipped.
+             */
+            if (i == start) {
+                ++start;
+                ++skipped;
+                continue;
+            }
             if (i - start > 255) {
                 OPENSSL_free(out);
                 return NULL;
             }
-            out[start] = (unsigned char)(i - start);
+            out[start-skipped] = (unsigned char)(i - start);
             start = i + 1;
         } else {
-            out[i + 1] = in[i];
+            out[i + 1 - skipped] = in[i];
         }
     }
 
-    *outlen = len + 1;
+    if (len <= skipped) {
+        OPENSSL_free(out);
+        return NULL;
+    }
+
+    *outlen = len + 1 - skipped;
     return out;
 }
 

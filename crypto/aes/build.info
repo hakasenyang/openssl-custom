@@ -61,8 +61,14 @@ ENDIF
 
 $COMMON=aes_misc.c aes_ecb.c $AESASM
 SOURCE[../../libcrypto]=$COMMON aes_cfb.c aes_ofb.c aes_ige.c aes_wrap.c
+SOURCE[../../providers/libfips.a]=$COMMON
+
+# Implementations are now spread across several libraries, so the defines
+# need to be applied to all affected libraries and modules.
 DEFINE[../../libcrypto]=$AESDEF
-SOURCE[../../providers/fips]=$COMMON
+DEFINE[../../providers/libfips.a]=$AESDEF
+DEFINE[../../providers/libimplementations.a]=$AESDEF
+# fipsprov.c needs access to AESNI.
 DEFINE[../../providers/fips]=$AESDEF
 
 GENERATE[aes-ia64.s]=asm/aes-ia64.S

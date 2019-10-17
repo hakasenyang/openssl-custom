@@ -12,7 +12,7 @@ B<openssl info>
 [B<-enginesdir>]
 [B<-modulesdir> ]
 [B<-dsoext>]
-[B<-dirfilesep>]
+[B<-dirnamesep>]
 [B<-listsep>]
 [B<-seeds>]
 [B<-cpusettings>]
@@ -54,7 +54,7 @@ Outputs the DSO extension OpenSSL uses.
 =item B<-dirnamesep>
 
 Outputs the separator character between a directory specification and
-a file name.
+a filename.
 Note that on some operating systems, this is not the same as the
 separator between directory elements.
 
@@ -76,7 +76,7 @@ Outputs the OpenSSL CPU settings info.
 
 =head1 HISTORY
 
-The B<openssl info> command was added in OpenSSL 3.0.
+This command was added in OpenSSL 3.0.
 
 =head1 COPYRIGHT
 

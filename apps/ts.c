@@ -507,8 +507,9 @@ static int create_digest(BIO *input, const char *digest, const EVP_MD *md,
         md_value_len = EVP_MD_size(md);
     } else {
         long digest_len;
+
         *md_value = OPENSSL_hexstr2buf(digest, &digest_len);
-        if (!*md_value || md_value_len != digest_len) {
+        if (*md_value == NULL || md_value_len != digest_len) {
             OPENSSL_free(*md_value);
             *md_value = NULL;
             BIO_printf(bio_err, "bad digest, %d bytes "
@@ -920,7 +921,7 @@ static TS_VERIFY_CTX *create_verify_ctx(const char *data, const char *digest,
 
     /* Loading untrusted certificates. */
     if (untrusted
-        && TS_VERIFY_CTS_set_certs(ctx, TS_CONF_load_certs(untrusted)) == NULL)
+        && TS_VERIFY_CTX_set_certs(ctx, TS_CONF_load_certs(untrusted)) == NULL)
         goto err;
     ret = 1;
 

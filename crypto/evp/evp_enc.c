@@ -17,9 +17,9 @@
 #include <openssl/engine.h>
 #include <openssl/params.h>
 #include <openssl/core_names.h>
-#include "internal/evp_int.h"
+#include "crypto/evp.h"
 #include "internal/provider.h"
-#include "evp_locl.h"
+#include "evp_local.h"
 
 int EVP_CIPHER_CTX_reset(EVP_CIPHER_CTX *ctx)
 {
@@ -267,6 +267,19 @@ int EVP_CipherInit_ex(EVP_CIPHER_CTX *ctx, const EVP_CIPHER *cipher,
         case NID_sm4_ctr:
         case NID_sm4_cfb128:
         case NID_sm4_ofb128:
+        case NID_rc4:
+        case NID_rc4_40:
+        case NID_rc5_cbc:
+        case NID_rc5_ecb:
+        case NID_rc5_cfb64:
+        case NID_rc5_ofb64:
+        case NID_rc2_cbc:
+        case NID_rc2_40_cbc:
+        case NID_rc2_64_cbc:
+        case NID_rc2_cfb64:
+        case NID_rc2_ofb64:
+        case NID_chacha20:
+        case NID_chacha20_poly1305:
             break;
         default:
             goto legacy;
@@ -333,19 +346,6 @@ int EVP_CipherInit_ex(EVP_CIPHER_CTX *ctx, const EVP_CIPHER *cipher,
          */
         if (!EVP_CIPHER_CTX_set_padding(ctx, 0))
             return 0;
-    }
-
-    switch (EVP_CIPHER_mode(ctx->cipher)) {
-    case EVP_CIPH_CFB_MODE:
-    case EVP_CIPH_OFB_MODE:
-    case EVP_CIPH_CBC_MODE:
-        /* For these modes we remember the original IV for later use */
-        if (!ossl_assert(EVP_CIPHER_CTX_iv_length(ctx) <= (int)sizeof(ctx->oiv))) {
-            EVPerr(EVP_F_EVP_CIPHERINIT_EX, EVP_R_INITIALIZATION_ERROR);
-            return 0;
-        }
-        if (iv != NULL)
-            memcpy(ctx->oiv, iv, EVP_CIPHER_CTX_iv_length(ctx));
     }
 
     if (enc) {
@@ -1067,6 +1067,7 @@ int EVP_CIPHER_CTX_ctrl(EVP_CIPHER_CTX *ctx, int type, int arg, void *ptr)
     int ret = EVP_CTRL_RET_UNSUPPORTED;
     int set_params = 1;
     size_t sz = arg;
+    unsigned int i;
     OSSL_PARAM params[2] = { OSSL_PARAM_END, OSSL_PARAM_END };
 
     if (ctx == NULL || ctx->cipher == NULL) {
@@ -1088,10 +1089,18 @@ int EVP_CIPHER_CTX_ctrl(EVP_CIPHER_CTX *ctx, int type, int arg, void *ptr)
                                               ptr, sz);
         break;
 
+    case EVP_CTRL_INIT:
+        /*
+         * TODO(3.0) EVP_CTRL_INIT is purely legacy, no provider counterpart
+         * As a matter of fact, this should be dead code, but some caller
+         * might still do a direct control call with this command, so...
+         * Legacy methods return 1 except for exceptional circumstances, so
+         * we do the same here to not be disruptive.
+         */
+        return 1;
     case EVP_CTRL_SET_PIPELINE_OUTPUT_BUFS: /* Used by DASYNC */
-    case EVP_CTRL_INIT: /* TODO(3.0) Purely legacy, no provider counterpart */
     default:
-        return EVP_CTRL_RET_UNSUPPORTED;
+        goto end;
     case EVP_CTRL_GET_IV:
         set_params = 0;
         params[0] = OSSL_PARAM_construct_octet_string(OSSL_CIPHER_PARAM_IV,
@@ -1107,11 +1116,24 @@ int EVP_CIPHER_CTX_ctrl(EVP_CIPHER_CTX *ctx, int type, int arg, void *ptr)
             OSSL_PARAM_construct_octet_string(OSSL_CIPHER_PARAM_AEAD_TLS1_IV_FIXED,
                                               ptr, sz);
         break;
+    case EVP_CTRL_GET_RC5_ROUNDS:
+        set_params = 0; /* Fall thru */
+    case EVP_CTRL_SET_RC5_ROUNDS:
+        if (arg < 0)
+            return 0;
+        i = (unsigned int)arg;
+        params[0] = OSSL_PARAM_construct_uint(OSSL_CIPHER_PARAM_ROUNDS, &i);
+        break;
     case EVP_CTRL_AEAD_GET_TAG:
         set_params = 0; /* Fall thru */
     case EVP_CTRL_AEAD_SET_TAG:
         params[0] = OSSL_PARAM_construct_octet_string(OSSL_CIPHER_PARAM_AEAD_TAG,
                                                       ptr, sz);
+        break;
+    case EVP_CTRL_AEAD_SET_MAC_KEY:
+        params[0] =
+            OSSL_PARAM_construct_octet_string(OSSL_CIPHER_PARAM_AEAD_MAC_KEY,
+                                              ptr, sz);
         break;
     case EVP_CTRL_AEAD_TLS1_AAD:
         /* This one does a set and a get - since it returns a padding size */
@@ -1120,20 +1142,27 @@ int EVP_CIPHER_CTX_ctrl(EVP_CIPHER_CTX *ctx, int type, int arg, void *ptr)
                                               ptr, sz);
         ret = evp_do_ciph_ctx_setparams(ctx->cipher, ctx->provctx, params);
         if (ret <= 0)
-            return ret;
+            goto end;
         params[0] =
             OSSL_PARAM_construct_size_t(OSSL_CIPHER_PARAM_AEAD_TLS1_AAD_PAD, &sz);
         ret = evp_do_ciph_ctx_getparams(ctx->cipher, ctx->provctx, params);
         if (ret <= 0)
-            return 0;
+            goto end;
         return sz;
+#ifndef OPENSSL_NO_RC2
+    case EVP_CTRL_GET_RC2_KEY_BITS:
+        set_params = 0; /* Fall thru */
+    case EVP_CTRL_SET_RC2_KEY_BITS:
+        params[0] = OSSL_PARAM_construct_size_t(OSSL_CIPHER_PARAM_RC2_KEYBITS, &sz);
+        break;
+#endif /* OPENSSL_NO_RC2 */
     }
 
     if (set_params)
         ret = evp_do_ciph_ctx_setparams(ctx->cipher, ctx->provctx, params);
     else
         ret = evp_do_ciph_ctx_getparams(ctx->cipher, ctx->provctx, params);
-    return ret;
+    goto end;
 
 /* TODO(3.0): Remove legacy code below */
 legacy:
@@ -1143,6 +1172,8 @@ legacy:
     }
 
     ret = ctx->cipher->ctrl(ctx, type, arg, ptr);
+
+ end:
     if (ret == EVP_CTRL_RET_UNSUPPORTED) {
         EVPerr(EVP_F_EVP_CIPHER_CTX_CTRL,
                EVP_R_CTRL_OPERATION_NOT_IMPLEMENTED);
@@ -1179,14 +1210,14 @@ const OSSL_PARAM *EVP_CIPHER_gettable_params(const EVP_CIPHER *cipher)
     return NULL;
 }
 
-const OSSL_PARAM *EVP_CIPHER_CTX_settable_params(const EVP_CIPHER *cipher)
+const OSSL_PARAM *EVP_CIPHER_settable_ctx_params(const EVP_CIPHER *cipher)
 {
     if (cipher != NULL && cipher->settable_ctx_params != NULL)
         return cipher->settable_ctx_params();
     return NULL;
 }
 
-const OSSL_PARAM *EVP_CIPHER_CTX_gettable_params(const EVP_CIPHER *cipher)
+const OSSL_PARAM *EVP_CIPHER_gettable_ctx_params(const EVP_CIPHER *cipher)
 {
     if (cipher != NULL && cipher->gettable_ctx_params != NULL)
         return cipher->gettable_ctx_params();
@@ -1334,7 +1365,7 @@ static void *evp_cipher_from_dispatch(const int name_id,
 #ifndef FIPS_MODE
     /* TODO(3.x) get rid of the need for legacy NIDs */
     cipher->nid = NID_undef;
-    evp_doall_names(prov, name_id, set_legacy_nid, &cipher->nid);
+    evp_names_do_all(prov, name_id, set_legacy_nid, &cipher->nid);
     if (cipher->nid == -1) {
         ERR_raise(ERR_LIB_EVP, ERR_R_INTERNAL_ERROR);
         EVP_CIPHER_free(cipher);
@@ -1490,9 +1521,9 @@ void EVP_CIPHER_free(EVP_CIPHER *cipher)
     OPENSSL_free(cipher);
 }
 
-void EVP_CIPHER_do_all_ex(OPENSSL_CTX *libctx,
-                          void (*fn)(EVP_CIPHER *mac, void *arg),
-                          void *arg)
+void EVP_CIPHER_do_all_provided(OPENSSL_CTX *libctx,
+                                void (*fn)(EVP_CIPHER *mac, void *arg),
+                                void *arg)
 {
     evp_generic_do_all(libctx, OSSL_OP_CIPHER,
                        (void (*)(void *, void *))fn, arg,
