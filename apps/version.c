@@ -18,9 +18,6 @@
 #ifndef OPENSSL_NO_MD2
 # include <openssl/md2.h>
 #endif
-#ifndef OPENSSL_NO_RC4
-# include <openssl/rc4.h>
-#endif
 #ifndef OPENSSL_NO_DES
 # include <openssl/des.h>
 #endif
@@ -37,7 +34,10 @@ typedef enum OPTION_choice {
 } OPTION_CHOICE;
 
 const OPTIONS version_options[] = {
+    OPT_SECTION("General"),
     {"help", OPT_HELP, '-', "Display this summary"},
+
+    OPT_SECTION("Output"),
     {"a", OPT_A, '-', "Show all data"},
     {"b", OPT_B, '-', "Show build date"},
     {"d", OPT_D, '-', "Show configuration directory"},
@@ -126,20 +126,11 @@ opthelp:
     if (options) {
         printf("options: ");
         printf(" %s", BN_options());
-#ifndef OPENSSL_NO_MD2
-        printf(" %s", MD2_options());
-#endif
-#ifndef OPENSSL_NO_RC4
-        printf(" %s", RC4_options());
-#endif
 #ifndef OPENSSL_NO_DES
         printf(" %s", DES_options());
 #endif
 #ifndef OPENSSL_NO_IDEA
         printf(" %s", IDEA_options());
-#endif
-#ifndef OPENSSL_NO_BF
-        printf(" %s", BF_options());
 #endif
         printf("\n");
     }

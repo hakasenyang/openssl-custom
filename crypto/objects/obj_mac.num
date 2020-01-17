@@ -1208,4 +1208,5 @@ x942kdf		1207
 id_on_SmtpUTF8Mailbox		1208
 XmppAddr		1209
 SRVName		1210
-chacha20_poly1305_draft		1211
+NAIRealm		1211
+chacha20_poly1305_draft		1212

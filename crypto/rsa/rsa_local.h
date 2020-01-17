@@ -50,8 +50,10 @@ struct rsa_st {
     STACK_OF(RSA_PRIME_INFO) *prime_infos;
     /* If a PSS only key this contains the parameter restrictions */
     RSA_PSS_PARAMS *pss;
+#ifndef FIPS_MODE
     /* be careful using this if the RSA structure is shared */
     CRYPTO_EX_DATA ex_data;
+#endif
     CRYPTO_REF_COUNT references;
     int flags;
     /* Used to cache montgomery values */
@@ -66,6 +68,8 @@ struct rsa_st {
     BN_BLINDING *blinding;
     BN_BLINDING *mt_blinding;
     CRYPTO_RWLOCK *lock;
+
+    int dirty_cnt;
 };
 
 struct rsa_meth_st {
