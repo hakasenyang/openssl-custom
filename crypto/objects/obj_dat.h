@@ -1088,7 +1088,7 @@ static const unsigned char so[7845] = {
     0x2B,0x06,0x01,0x05,0x05,0x07,0x08,0x08,       /* [ 7836] OBJ_NAIRealm */
 };
 
-#define NUM_NID 1213
+#define NUM_NID 1219
 static const ASN1_OBJECT nid_objs[NUM_NID] = {
     {"UNDEF", "undefined", NID_undef},
     {"rsadsi", "RSA Data Security, Inc.", NID_rsadsi, 6, &so[0]},
@@ -2302,10 +2302,16 @@ static const ASN1_OBJECT nid_objs[NUM_NID] = {
     {"id-on-xmppAddr", "XmppAddr", NID_XmppAddr, 8, &so[7820]},
     {"id-on-dnsSRV", "SRVName", NID_SRVName, 8, &so[7828]},
     {"id-on-NAIRealm", "NAIRealm", NID_NAIRealm, 8, &so[7836]},
+    {"modp_1536", "modp_1536", NID_modp_1536},
+    {"modp_2048", "modp_2048", NID_modp_2048},
+    {"modp_3072", "modp_3072", NID_modp_3072},
+    {"modp_4096", "modp_4096", NID_modp_4096},
+    {"modp_6144", "modp_6144", NID_modp_6144},
+    {"modp_8192", "modp_8192", NID_modp_8192},
     {"ChaCha20-Poly1305-D", "chacha20-poly1305-draft", NID_chacha20_poly1305_draft},
 };
 
-#define NUM_SN 1204
+#define NUM_SN 1210
 static const unsigned int sn_objs[NUM_SN] = {
      364,    /* "AD_DVCS" */
      419,    /* "AES-128-CBC" */
@@ -2428,7 +2434,7 @@ static const unsigned int sn_objs[NUM_SN] = {
      417,    /* "CSPName" */
     1019,    /* "ChaCha20" */
     1018,    /* "ChaCha20-Poly1305" */
-    1212,    /* "ChaCha20-Poly1305-D" */
+    1218,    /* "ChaCha20-Poly1305-D" */
      367,    /* "CrlID" */
      391,    /* "DC" */
       31,    /* "DES-CBC" */
@@ -3165,6 +3171,12 @@ static const unsigned int sn_objs[NUM_SN] = {
      506,    /* "mime-mhs-bodies" */
      505,    /* "mime-mhs-headings" */
      488,    /* "mobileTelephoneNumber" */
+    1212,    /* "modp_1536" */
+    1213,    /* "modp_2048" */
+    1214,    /* "modp_3072" */
+    1215,    /* "modp_4096" */
+    1216,    /* "modp_6144" */
+    1217,    /* "modp_8192" */
      136,    /* "msCTLSign" */
      135,    /* "msCodeCom" */
      134,    /* "msCodeInd" */
@@ -3513,7 +3525,7 @@ static const unsigned int sn_objs[NUM_SN] = {
     1093,    /* "x509ExtAdmission" */
 };
 
-#define NUM_LN 1204
+#define NUM_LN 1210
 static const unsigned int ln_objs[NUM_LN] = {
      363,    /* "AD Time Stamping" */
      405,    /* "ANSI X9.62" */
@@ -3902,7 +3914,7 @@ static const unsigned int ln_objs[NUM_LN] = {
      883,    /* "certificateRevocationList" */
     1019,    /* "chacha20" */
     1018,    /* "chacha20-poly1305" */
-    1212,    /* "chacha20-poly1305-draft" */
+    1218,    /* "chacha20-poly1305-draft" */
       54,    /* "challengePassword" */
      407,    /* "characteristic-two-field" */
      395,    /* "clearance" */
@@ -4363,6 +4375,12 @@ static const unsigned int ln_objs[NUM_LN] = {
      506,    /* "mime-mhs-bodies" */
      505,    /* "mime-mhs-headings" */
      488,    /* "mobileTelephoneNumber" */
+    1212,    /* "modp_1536" */
+    1213,    /* "modp_2048" */
+    1214,    /* "modp_3072" */
+    1215,    /* "modp_4096" */
+    1216,    /* "modp_6144" */
+    1217,    /* "modp_8192" */
      481,    /* "nSRecord" */
      173,    /* "name" */
      681,    /* "onBasis" */

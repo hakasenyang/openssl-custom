@@ -18,7 +18,6 @@
 #include <openssl/rand.h>
 #include <openssl/objects.h>
 #include <openssl/evp.h>
-#include <openssl/hmac.h>
 #include <openssl/x509.h>
 #include <openssl/dh.h>
 #include <openssl/bn.h>
@@ -2570,7 +2569,7 @@ int tls_construct_server_key_exchange(SSL *s, WPACKET *pkt)
             goto err;
         }
 
-        s->s3.tmp.pkey = ssl_generate_pkey(pkdhp);
+        s->s3.tmp.pkey = ssl_generate_pkey(s, pkdhp);
         if (s->s3.tmp.pkey == NULL) {
             /* SSLfatal() already called */
             goto err;
@@ -2845,7 +2844,8 @@ int tls_construct_certificate_request(SSL *s, WPACKET *pkt)
             OPENSSL_free(s->pha_context);
             s->pha_context_len = 32;
             if ((s->pha_context = OPENSSL_malloc(s->pha_context_len)) == NULL
-                    || RAND_bytes(s->pha_context, s->pha_context_len) <= 0
+                    || RAND_bytes_ex(s->ctx->libctx, s->pha_context,
+                                     s->pha_context_len) <= 0
                     || !WPACKET_sub_memcpy_u8(pkt, s->pha_context, s->pha_context_len)) {
                 SSLfatal(s, SSL_AD_INTERNAL_ERROR,
                          SSL_F_TLS_CONSTRUCT_CERTIFICATE_REQUEST,
@@ -3014,7 +3014,7 @@ static int tls_process_cke_rsa(SSL *s, PACKET *pkt)
         return 0;
     }
 
-    ctx = EVP_PKEY_CTX_new(rsa, NULL);
+    ctx = EVP_PKEY_CTX_new_from_pkey(s->ctx->libctx, rsa, s->ctx->propq);
     if (ctx == NULL) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_PROCESS_CKE_RSA,
                  ERR_R_MALLOC_FAILURE);
@@ -3297,7 +3297,7 @@ static int tls_process_cke_gost(SSL *s, PACKET *pkt)
         pk = s->cert->pkeys[SSL_PKEY_GOST01].privatekey;
     }
 
-    pkey_ctx = EVP_PKEY_CTX_new(pk, NULL);
+    pkey_ctx = EVP_PKEY_CTX_new_from_pkey(s->ctx->libctx, pk, s->ctx->propq);
     if (pkey_ctx == NULL) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_PROCESS_CKE_GOST,
                  ERR_R_MALLOC_FAILURE);
@@ -3779,12 +3779,12 @@ static int construct_stateless_ticket(SSL *s, WPACKET *pkt, uint32_t age_add,
 {
     unsigned char *senc = NULL;
     EVP_CIPHER_CTX *ctx = NULL;
-    HMAC_CTX *hctx = NULL;
+    SSL_HMAC *hctx = NULL;
     unsigned char *p, *encdata1, *encdata2, *macdata1, *macdata2;
     const unsigned char *const_p;
     int len, slen_full, slen, lenfinal;
     SSL_SESSION *sess;
-    unsigned int hlen;
+    size_t hlen;
     SSL_CTX *tctx = s->session_ctx;
     unsigned char iv[EVP_MAX_IV_LENGTH];
     unsigned char key_name[TLSEXT_KEYNAME_LENGTH];
@@ -3810,7 +3810,7 @@ static int construct_stateless_ticket(SSL *s, WPACKET *pkt, uint32_t age_add,
     }
 
     ctx = EVP_CIPHER_CTX_new();
-    hctx = HMAC_CTX_new();
+    hctx = ssl_hmac_new(tctx);
     if (ctx == NULL || hctx == NULL) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_CONSTRUCT_STATELESS_TICKET,
                  ERR_R_MALLOC_FAILURE);
@@ -3856,10 +3856,24 @@ static int construct_stateless_ticket(SSL *s, WPACKET *pkt, uint32_t age_add,
      * Initialize HMAC and cipher contexts. If callback present it does
      * all the work otherwise use generated values from parent ctx.
      */
-    if (tctx->ext.ticket_key_cb) {
-        /* if 0 is returned, write an empty ticket */
-        int ret = tctx->ext.ticket_key_cb(s, key_name, iv, ctx,
-                                             hctx, 1);
+#ifndef OPENSSL_NO_DEPRECATED_3_0
+    if (tctx->ext.ticket_key_evp_cb != NULL || tctx->ext.ticket_key_cb != NULL)
+#else
+    if (tctx->ext.ticket_key_evp_cb != NULL)
+#endif
+    {
+        int ret = 0;
+
+        if (tctx->ext.ticket_key_evp_cb != NULL)
+            ret = tctx->ext.ticket_key_evp_cb(s, key_name, iv, ctx,
+                                              ssl_hmac_get0_EVP_MAC_CTX(hctx),
+                                              1);
+#ifndef OPENSSL_NO_DEPRECATED_3_0
+        else if (tctx->ext.ticket_key_cb != NULL)
+            /* if 0 is returned, write an empty ticket */
+            ret = tctx->ext.ticket_key_cb(s, key_name, iv, ctx,
+                                          ssl_hmac_get0_HMAC_CTX(hctx), 1);
+#endif
 
         if (ret == 0) {
 
@@ -3873,7 +3887,7 @@ static int construct_stateless_ticket(SSL *s, WPACKET *pkt, uint32_t age_add,
             }
             OPENSSL_free(senc);
             EVP_CIPHER_CTX_free(ctx);
-            HMAC_CTX_free(hctx);
+            ssl_hmac_free(hctx);
             return 1;
         }
         if (ret < 0) {
@@ -3886,12 +3900,12 @@ static int construct_stateless_ticket(SSL *s, WPACKET *pkt, uint32_t age_add,
         const EVP_CIPHER *cipher = EVP_aes_256_cbc();
 
         iv_len = EVP_CIPHER_iv_length(cipher);
-        if (RAND_bytes(iv, iv_len) <= 0
+        if (RAND_bytes_ex(s->ctx->libctx, iv, iv_len) <= 0
                 || !EVP_EncryptInit_ex(ctx, cipher, NULL,
                                        tctx->ext.secure->tick_aes_key, iv)
-                || !HMAC_Init_ex(hctx, tctx->ext.secure->tick_hmac_key,
-                                 sizeof(tctx->ext.secure->tick_hmac_key),
-                                 EVP_sha256(), NULL)) {
+                || !ssl_hmac_init(hctx, tctx->ext.secure->tick_hmac_key,
+                                  sizeof(tctx->ext.secure->tick_hmac_key),
+                                  "SHA256")) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_CONSTRUCT_STATELESS_TICKET,
                      ERR_R_INTERNAL_ERROR);
             goto err;
@@ -3921,11 +3935,11 @@ static int construct_stateless_ticket(SSL *s, WPACKET *pkt, uint32_t age_add,
             || encdata1 + len != encdata2
             || len + lenfinal > slen + EVP_MAX_BLOCK_LENGTH
             || !WPACKET_get_total_written(pkt, &macendoffset)
-            || !HMAC_Update(hctx,
-                            (unsigned char *)s->init_buf->data + macoffset,
-                            macendoffset - macoffset)
+            || !ssl_hmac_update(hctx,
+                                (unsigned char *)s->init_buf->data + macoffset,
+                                macendoffset - macoffset)
             || !WPACKET_reserve_bytes(pkt, EVP_MAX_MD_SIZE, &macdata1)
-            || !HMAC_Final(hctx, macdata1, &hlen)
+            || !ssl_hmac_final(hctx, macdata1, &hlen, EVP_MAX_MD_SIZE)
             || hlen > EVP_MAX_MD_SIZE
             || !WPACKET_allocate_bytes(pkt, hlen, &macdata2)
             || macdata1 != macdata2) {
@@ -3945,7 +3959,7 @@ static int construct_stateless_ticket(SSL *s, WPACKET *pkt, uint32_t age_add,
  err:
     OPENSSL_free(senc);
     EVP_CIPHER_CTX_free(ctx);
-    HMAC_CTX_free(hctx);
+    ssl_hmac_free(hctx);
     return ok;
 }
 
@@ -4016,7 +4030,8 @@ int tls_construct_new_session_ticket(SSL *s, WPACKET *pkt)
             /* SSLfatal() already called */
             goto err;
         }
-        if (RAND_bytes(age_add_u.age_add_c, sizeof(age_add_u)) <= 0) {
+        if (RAND_bytes_ex(s->ctx->libctx, age_add_u.age_add_c,
+                          sizeof(age_add_u)) <= 0) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR,
                      SSL_F_TLS_CONSTRUCT_NEW_SESSION_TICKET,
                      ERR_R_INTERNAL_ERROR);

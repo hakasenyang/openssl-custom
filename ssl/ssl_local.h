@@ -738,6 +738,32 @@ typedef struct ssl_ctx_ext_secure_st {
     unsigned char tick_aes_key[TLSEXT_TICK_KEY_LENGTH];
 } SSL_CTX_EXT_SECURE;
 
+/*
+ * Helper function for HMAC
+ * The structure should be considered opaque, it will change once the low
+ * level deprecated calls are removed.  At that point it can be replaced
+ * by EVP_MAC_CTX and most of the functions converted to macros or inlined
+ * directly.
+ */
+typedef struct ssl_hmac_st {
+    EVP_MAC_CTX *ctx;
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+    HMAC_CTX *old_ctx;
+# endif
+} SSL_HMAC;
+
+SSL_HMAC *ssl_hmac_new(const SSL_CTX *ctx);
+void ssl_hmac_free(SSL_HMAC *ctx);
+# ifndef OPENSSL_NO_DEPRECATED_3_0
+HMAC_CTX *ssl_hmac_get0_HMAC_CTX(SSL_HMAC *ctx);
+# endif
+EVP_MAC_CTX *ssl_hmac_get0_EVP_MAC_CTX(SSL_HMAC *ctx);
+int ssl_hmac_init(SSL_HMAC *ctx, void *key, size_t len, char *md);
+int ssl_hmac_update(SSL_HMAC *ctx, const unsigned char *data, size_t len);
+int ssl_hmac_final(SSL_HMAC *ctx, unsigned char *md, size_t *len,
+                   size_t max_size);
+size_t ssl_hmac_size(const SSL_HMAC *ctx);
+
 /* ssl_cipher_preference_list_st contains a list of SSL_CIPHERs with
  * equal-preference groups. For TLS clients, the groups are moot because the
  * server picks the cipher and groups cannot be expressed on the wire. However,
@@ -776,6 +802,8 @@ struct ssl_cipher_preference_list_st {
 
 
 struct ssl_ctx_st {
+    OPENSSL_CTX *libctx;
+
     const SSL_METHOD *method;
     struct ssl_cipher_preference_list_st *cipher_list;
     /* same as above but sorted for lookup */
@@ -973,10 +1001,16 @@ struct ssl_ctx_st {
         /* RFC 4507 session ticket keys */
         unsigned char tick_key_name[TLSEXT_KEYNAME_LENGTH];
         SSL_CTX_EXT_SECURE *secure;
+# ifndef OPENSSL_NO_DEPRECATED_3_0
         /* Callback to support customisation of ticket key setting */
         int (*ticket_key_cb) (SSL *ssl,
                               unsigned char *name, unsigned char *iv,
                               EVP_CIPHER_CTX *ectx, HMAC_CTX *hctx, int enc);
+#endif
+        int (*ticket_key_evp_cb) (SSL *ssl,
+                                  unsigned char *name, unsigned char *iv,
+                                  EVP_CIPHER_CTX *ectx, EVP_MAC_CTX *hctx,
+                                  int enc);
 
         /* certificate status request info */
         /* Callback for status request */
@@ -1112,6 +1146,8 @@ struct ssl_ctx_st {
     /* Callback for SSL async handling */
     SSL_async_callback_fn async_cb;
     void *async_cb_arg;
+
+    char *propq;
 };
 
 typedef struct cert_pkey_st CERT_PKEY;
@@ -2391,7 +2427,7 @@ __owur int ssl_fill_hello_random(SSL *s, int server, unsigned char *field,
                                  size_t len, DOWNGRADE dgrd);
 __owur int ssl_generate_master_secret(SSL *s, unsigned char *pms, size_t pmslen,
                                       int free_pms);
-__owur EVP_PKEY *ssl_generate_pkey(EVP_PKEY *pm);
+__owur EVP_PKEY *ssl_generate_pkey(SSL *s, EVP_PKEY *pm);
 __owur int ssl_derive(SSL *s, EVP_PKEY *privkey, EVP_PKEY *pubkey,
                       int genmaster);
 __owur EVP_PKEY *ssl_dh_to_pkey(DH *dh);
@@ -2648,7 +2684,7 @@ __owur int tls_check_sigalg_curve(const SSL *s, int curve);
 #  endif
 __owur int tls12_check_peer_sigalg(SSL *s, uint16_t, EVP_PKEY *pkey);
 __owur int ssl_set_client_disabled(SSL *s);
-__owur int ssl_cipher_disabled(SSL *s, const SSL_CIPHER *c, int op, int echde);
+__owur int ssl_cipher_disabled(const SSL *s, const SSL_CIPHER *c, int op, int echde);
 
 __owur int ssl_handshake_hash(SSL *s, unsigned char *out, size_t outlen,
                                  size_t *hashlen);

@@ -492,6 +492,8 @@ static const ERR_STRING_DATA SSL_str_reasons[] = {
     "unexpected ccs message"},
     {ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNEXPECTED_END_OF_EARLY_DATA),
     "unexpected end of early data"},
+    {ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNEXPECTED_EOF_WHILE_READING),
+    "unexpected eof while reading"},
     {ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNEXPECTED_GROUP_CLOSE),
     "unexpected group close"},
     {ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNEXPECTED_MESSAGE), "unexpected message"},
