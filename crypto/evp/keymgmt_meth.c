@@ -38,7 +38,7 @@ static void *keymgmt_from_dispatch(int name_id,
                                    OSSL_PROVIDER *prov)
 {
     EVP_KEYMGMT *keymgmt = NULL;
-    int paramfncnt = 0, importfncnt = 0, exportfncnt = 0;
+    int setparamfncnt = 0, getparamfncnt = 0, importfncnt = 0, exportfncnt = 0;
 
     if ((keymgmt = keymgmt_new()) == NULL) {
         EVP_KEYMGMT_free(keymgmt);
@@ -58,15 +58,28 @@ static void *keymgmt_from_dispatch(int name_id,
             break;
         case OSSL_FUNC_KEYMGMT_GET_PARAMS:
             if (keymgmt->get_params == NULL) {
-                paramfncnt++;
+                getparamfncnt++;
                 keymgmt->get_params = OSSL_get_OP_keymgmt_get_params(fns);
             }
             break;
         case OSSL_FUNC_KEYMGMT_GETTABLE_PARAMS:
             if (keymgmt->gettable_params == NULL) {
-                paramfncnt++;
+                getparamfncnt++;
                 keymgmt->gettable_params =
                     OSSL_get_OP_keymgmt_gettable_params(fns);
+            }
+            break;
+         case OSSL_FUNC_KEYMGMT_SET_PARAMS:
+            if (keymgmt->set_params == NULL) {
+                setparamfncnt++;
+                keymgmt->set_params = OSSL_get_OP_keymgmt_set_params(fns);
+            }
+            break;
+        case OSSL_FUNC_KEYMGMT_SETTABLE_PARAMS:
+            if (keymgmt->settable_params == NULL) {
+                setparamfncnt++;
+                keymgmt->settable_params =
+                    OSSL_get_OP_keymgmt_settable_params(fns);
             }
             break;
         case OSSL_FUNC_KEYMGMT_QUERY_OPERATION_NAME:
@@ -81,6 +94,10 @@ static void *keymgmt_from_dispatch(int name_id,
         case OSSL_FUNC_KEYMGMT_VALIDATE:
             if (keymgmt->validate == NULL)
                 keymgmt->validate = OSSL_get_OP_keymgmt_validate(fns);
+            break;
+        case OSSL_FUNC_KEYMGMT_MATCH:
+            if (keymgmt->match == NULL)
+                keymgmt->match = OSSL_get_OP_keymgmt_match(fns);
             break;
         case OSSL_FUNC_KEYMGMT_IMPORT:
             if (keymgmt->import == NULL) {
@@ -119,7 +136,8 @@ static void *keymgmt_from_dispatch(int name_id,
     if (keymgmt->free == NULL
         || keymgmt->new == NULL
         || keymgmt->has == NULL
-        || (paramfncnt != 0 && paramfncnt != 2)
+        || (getparamfncnt != 0 && getparamfncnt != 2)
+        || (setparamfncnt != 0 && setparamfncnt != 2)
         || (importfncnt != 0 && importfncnt != 2)
         || (exportfncnt != 0 && exportfncnt != 2)) {
         EVP_KEYMGMT_free(keymgmt);
@@ -246,6 +264,21 @@ const OSSL_PARAM *evp_keymgmt_gettable_params(const EVP_KEYMGMT *keymgmt)
     return keymgmt->gettable_params();
 }
 
+int evp_keymgmt_set_params(const EVP_KEYMGMT *keymgmt, void *keydata,
+                           const OSSL_PARAM params[])
+{
+    if (keymgmt->set_params == NULL)
+        return 1;
+    return keymgmt->set_params(keydata, params);
+}
+
+const OSSL_PARAM *evp_keymgmt_settable_params(const EVP_KEYMGMT *keymgmt)
+{
+    if (keymgmt->settable_params == NULL)
+        return NULL;
+    return keymgmt->settable_params();
+}
+
 int evp_keymgmt_has(const EVP_KEYMGMT *keymgmt, void *keydata, int selection)
 {
     /* This is mandatory, no need to check for its presence */
@@ -259,6 +292,16 @@ int evp_keymgmt_validate(const EVP_KEYMGMT *keymgmt, void *keydata,
     if (keymgmt->validate == NULL)
         return 1;
     return keymgmt->validate(keydata, selection);
+}
+
+int evp_keymgmt_match(const EVP_KEYMGMT *keymgmt,
+                      const void *keydata1, const void *keydata2,
+                      int selection)
+{
+    /* We assume no match if the implementation doesn't have a function */
+    if (keymgmt->match == NULL)
+        return 0;
+    return keymgmt->match(keydata1, keydata2, selection);
 }
 
 int evp_keymgmt_import(const EVP_KEYMGMT *keymgmt, void *keydata,
@@ -291,4 +334,14 @@ const OSSL_PARAM *evp_keymgmt_export_types(const EVP_KEYMGMT *keymgmt,
     if (keymgmt->export_types == NULL)
         return NULL;
     return keymgmt->export_types(selection);
+}
+
+int evp_keymgmt_copy(const EVP_KEYMGMT *keymgmt,
+                     void *keydata_to, const void *keydata_from,
+                     int selection)
+{
+    /* We assume no copy if the implementation doesn't have a function */
+    if (keymgmt->copy == NULL)
+        return 0;
+    return keymgmt->copy(keydata_to, keydata_from, selection);
 }

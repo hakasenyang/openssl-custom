@@ -92,17 +92,17 @@ EOF
 
     my %cmd_disabler = (
         ciphers  => "sock",
+        pkcs12   => "des",
         genrsa   => "rsa",
         rsautl   => "rsa",
-        gendh    => "dh",
-        ecparam  => "ec",
-        pkcs12   => "des",
     );
     my %cmd_deprecated = (
         dhparam  => [ "3_0", "pkeyparam", "dh" ],
         dsaparam => [ "3_0", "pkeyparam", "dsa" ],
         dsa      => [ "3_0", "pkey",      "dsa" ],
         gendsa   => [ "3_0", "genpkey",   "dsa" ],
+        ec       => [ "3_0", "pkey",      "ec" ],
+        ecparam  => [ "3_0", "pkeyparam", "ec" ],
     );
 
     print "FUNCTION functions[] = {\n";

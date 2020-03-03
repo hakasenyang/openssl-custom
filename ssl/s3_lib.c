@@ -4805,7 +4805,7 @@ EVP_PKEY *ssl_generate_pkey_group(SSL *s, uint16_t id)
                 || (dh = DH_new_by_nid(ginf->nid)) == NULL
                 || !EVP_PKEY_assign(pkey, EVP_PKEY_DH, dh)) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_SSL_GENERATE_PKEY_GROUP,
-                    ERR_R_EVP_LIB);
+                     ERR_R_EVP_LIB);
             DH_free(dh);
             EVP_PKEY_free(pkey);
             pkey = NULL;
@@ -4813,7 +4813,7 @@ EVP_PKEY *ssl_generate_pkey_group(SSL *s, uint16_t id)
         }
         if (EVP_PKEY_CTX_set_dh_nid(pctx, ginf->nid) <= 0) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_SSL_GENERATE_PKEY_GROUP,
-                    ERR_R_EVP_LIB);
+                     ERR_R_EVP_LIB);
             EVP_PKEY_free(pkey);
             pkey = NULL;
             goto err;
@@ -4849,7 +4849,7 @@ EVP_PKEY *ssl_generate_pkey_group(SSL *s, uint16_t id)
 /*
  * Generate parameters from a group ID
  */
-EVP_PKEY *ssl_generate_param_group(uint16_t id)
+EVP_PKEY *ssl_generate_param_group(SSL *s, uint16_t id)
 {
     EVP_PKEY_CTX *pctx = NULL;
     EVP_PKEY *pkey = NULL;

@@ -393,6 +393,12 @@ OSSL_CORE_MAKE_FUNC(int, OP_keymgmt_get_params,
                     (void *keydata, OSSL_PARAM params[]))
 OSSL_CORE_MAKE_FUNC(const OSSL_PARAM *, OP_keymgmt_gettable_params, (void))
 
+#define OSSL_FUNC_KEYMGMT_SET_PARAMS                  12
+#define OSSL_FUNC_KEYMGMT_SETTABLE_PARAMS             13
+OSSL_CORE_MAKE_FUNC(int, OP_keymgmt_set_params,
+                    (void *keydata, const OSSL_PARAM params[]))
+OSSL_CORE_MAKE_FUNC(const OSSL_PARAM *, OP_keymgmt_settable_params, (void))
+
 /* Key checks - discovery of supported operations */
 # define OSSL_FUNC_KEYMGMT_QUERY_OPERATION_NAME       20
 OSSL_CORE_MAKE_FUNC(const char *, OP_keymgmt_query_operation_name,
@@ -406,7 +412,13 @@ OSSL_CORE_MAKE_FUNC(int, OP_keymgmt_has, (void *keydata, int selection))
 # define OSSL_FUNC_KEYMGMT_VALIDATE                   22
 OSSL_CORE_MAKE_FUNC(int, OP_keymgmt_validate, (void *keydata, int selection))
 
-/* Import and export functions, with ddiscovery */
+/* Key checks - matching */
+# define OSSL_FUNC_KEYMGMT_MATCH                      23
+OSSL_CORE_MAKE_FUNC(int, OP_keymgmt_match,
+                    (const void *keydata1, const void *keydata2,
+                     int selection))
+
+/* Import and export functions, with discovery */
 # define OSSL_FUNC_KEYMGMT_IMPORT                     40
 # define OSSL_FUNC_KEYMGMT_IMPORT_TYPES               41
 # define OSSL_FUNC_KEYMGMT_EXPORT                     42
@@ -421,6 +433,12 @@ OSSL_CORE_MAKE_FUNC(int, OP_keymgmt_export,
 OSSL_CORE_MAKE_FUNC(const OSSL_PARAM *, OP_keymgmt_export_types,
                     (int selection))
 
+/* Copy function, only works for matching keymgmt */
+# define OSSL_FUNC_KEYMGMT_COPY                       44
+OSSL_CORE_MAKE_FUNC(int, OP_keymgmt_copy,
+                    ( void *keydata_to, const void *keydata_from,
+                     int selection))
+
 /* Key Exchange */
 
 # define OSSL_FUNC_KEYEXCH_NEWCTX                      1
@@ -431,6 +449,8 @@ OSSL_CORE_MAKE_FUNC(const OSSL_PARAM *, OP_keymgmt_export_types,
 # define OSSL_FUNC_KEYEXCH_DUPCTX                      6
 # define OSSL_FUNC_KEYEXCH_SET_CTX_PARAMS              7
 # define OSSL_FUNC_KEYEXCH_SETTABLE_CTX_PARAMS         8
+# define OSSL_FUNC_KEYEXCH_GET_CTX_PARAMS              9
+# define OSSL_FUNC_KEYEXCH_GETTABLE_CTX_PARAMS        10
 
 OSSL_CORE_MAKE_FUNC(void *, OP_keyexch_newctx, (void *provctx))
 OSSL_CORE_MAKE_FUNC(int, OP_keyexch_init, (void *ctx, void *provkey))
@@ -442,6 +462,10 @@ OSSL_CORE_MAKE_FUNC(void *, OP_keyexch_dupctx, (void *ctx))
 OSSL_CORE_MAKE_FUNC(int, OP_keyexch_set_ctx_params, (void *ctx,
                                                      const OSSL_PARAM params[]))
 OSSL_CORE_MAKE_FUNC(const OSSL_PARAM *, OP_keyexch_settable_ctx_params,
+                    (void))
+OSSL_CORE_MAKE_FUNC(int, OP_keyexch_get_ctx_params, (void *ctx,
+                                                     OSSL_PARAM params[]))
+OSSL_CORE_MAKE_FUNC(const OSSL_PARAM *, OP_keyexch_gettable_ctx_params,
                     (void))
 
 /* Signature */

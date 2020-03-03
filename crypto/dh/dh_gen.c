@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2019 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -11,6 +11,17 @@
  * NB: These functions have been upgraded - the previous prototypes are in
  * dh_depr.c as wrappers to these ones.  - Geoff
  */
+
+/*
+ * DH low level APIs are deprecated for public use, but still ok for
+ * internal use.
+ *
+ * NOTE: When generating keys for key-agreement schemes - FIPS 140-2 IG 9.9
+ * states that no additional pairwise tests are required (apart from the tests
+ * specified in SP800-56A) when generating keys. Hence DH pairwise tests are
+ * omitted here.
+ */
+#include "internal/deprecated.h"
 
 #include <stdio.h>
 #include "internal/cryptlib.h"
