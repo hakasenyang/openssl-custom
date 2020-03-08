@@ -35,6 +35,7 @@ IF[{- !$disabled{tests} -}]
           ectest ecstresstest gmdifftest pbelutest \
           destest mdc2test \
           enginetest exptest \
+          ssltest_old exptest rsa_test \
           evp_pkey_provided_test evp_test evp_extra_test evp_fetch_prov_test \
           v3nametest v3ext \
           crltest danetest bad_dtls_test lhash_test sparse_array_test \
@@ -152,7 +153,7 @@ IF[{- !$disabled{tests} -}]
 
   SOURCE[evp_pkey_provided_test]=evp_pkey_provided_test.c
   INCLUDE[evp_pkey_provided_test]=../include ../apps/include
-  DEPEND[evp_pkey_provided_test]=../libcrypto libtestutil.a
+  DEPEND[evp_pkey_provided_test]=../libcrypto.a libtestutil.a
 
   IF[{- !$disabled{'deprecated-3.0'} -}]
     PROGRAMS{noinst}=igetest bftest casttest
@@ -486,8 +487,8 @@ IF[{- !$disabled{tests} -}]
   IF[1]
     PROGRAMS{noinst}=asn1_internal_test modes_internal_test x509_internal_test \
                      tls13encryptiontest wpackettest ctype_internal_test \
-                     rdrand_sanitytest property_test ideatest rsa_mp_test \
-                     rsa_sp800_56b_test bn_internal_test ecdsatest rsa_test \
+                     rdrand_sanitytest property_test ideatest \
+                     rsa_sp800_56b_test bn_internal_test ecdsatest \
                      rc2test rc4test rc5test hmactest ffc_internal_test \
                      asn1_dsa_internal_test dsatest dsa_no_digest_size_test \
                      dhtest ssltest_old
@@ -717,8 +718,8 @@ IF[{- !$disabled{tests} -}]
     DEFINE[provider_test]=NO_PROVIDER_MODULE
     DEFINE[provider_internal_test]=NO_PROVIDER_MODULE
   ENDIF
-  DEPEND[]=provider_internal_test.conf
-  GENERATE[provider_internal_test.conf]=provider_internal_test.conf.in
+  DEPEND[]=provider_internal_test.cnf
+  GENERATE[provider_internal_test.cnf]=provider_internal_test.cnf.in
 
   PROGRAMS{noinst}=params_test
   SOURCE[params_test]=params_test.c

@@ -14,6 +14,7 @@ B<openssl rand>
 [B<-hex>]
 {- $OpenSSL::safe::opt_engine_synopsis -}
 {- $OpenSSL::safe::opt_r_synopsis -}
+{- $OpenSSL::safe::opt_provider_synopsis -}
 I<num>
 
 =for openssl ifdef engine
@@ -26,7 +27,7 @@ secure pseudo random number generator (CSPRNG).
 The random bytes are generated using the L<RAND_bytes(3)> function,
 which provides a security level of 256 bits, provided it managed to
 seed itself successfully from a trusted operating system entropy source.
-Otherwise, the command will fail with a non-zero error code.
+Otherwise, the command will fail with a nonzero error code.
 For more details, see L<RAND_bytes(3)>, L<RAND(7)>, and L<RAND_DRBG(7)>.
 
 =head1 OPTIONS
@@ -52,6 +53,8 @@ Show the output as a hex string.
 {- $OpenSSL::safe::opt_engine_item -}
 
 {- $OpenSSL::safe::opt_r_item -}
+
+{- $OpenSSL::safe::opt_provider_item -}
 
 =back
 

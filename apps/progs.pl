@@ -93,10 +93,11 @@ EOF
     my %cmd_disabler = (
         ciphers  => "sock",
         pkcs12   => "des",
-        genrsa   => "rsa",
-        rsautl   => "rsa",
     );
     my %cmd_deprecated = (
+        rsa      => [ "3_0", "pkey",      "rsa" ],
+        genrsa   => [ "3_0", "genpkey",   "rsa" ],
+        rsautl   => [ "3_0", "pkeyutl",   "rsa" ],
         dhparam  => [ "3_0", "pkeyparam", "dh" ],
         dsaparam => [ "3_0", "pkeyparam", "dsa" ],
         dsa      => [ "3_0", "pkey",      "dsa" ],

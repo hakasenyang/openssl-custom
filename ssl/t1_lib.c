@@ -1728,7 +1728,7 @@ static int tls12_sigalg_allowed(const SSL *s, int op, const SIGALG_LOOKUP *lu)
     if (lu->hash == NID_undef)
         return 1;
     /* Security bits: half digest bits */
-    secbits = EVP_MD_size(ssl_md(s->ctx, lu->hash_idx)) * 4;
+    secbits = EVP_MD_size(ssl_md(lu->hash_idx)) * 4;
     /* Finally see if security callback allows it */
     sigalgstr[0] = (lu->sigalg >> 8) & 0xff;
     sigalgstr[1] = lu->sigalg & 0xff;
