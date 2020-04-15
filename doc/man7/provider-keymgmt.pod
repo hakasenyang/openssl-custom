@@ -18,6 +18,15 @@ provider-keymgmt - The KEYMGMT library E<lt>-E<gt> provider functions
  void *OP_keymgmt_new(void *provctx);
  void OP_keymgmt_free(void *keydata);
 
+ void *OP_keymgmt_gen_init(void *provctx, int selection);
+ int OP_keymgmt_gen_set_template(void *genctx, void *template);
+ int OP_keymgmt_gen_set_params(void *genctx, const OSSL_PARAM params[]);
+ const OSSL_PARAM *OP_keymgmt_gen_settable_params(void *provctx);
+ int OP_keymgmt_gen_get_params(void *genctx, const OSSL_PARAM params[]);
+ const OSSL_PARAM *OP_keymgmt_gen_gettable_params(void *provctx);
+ void *OP_keymgmt_gen(void *genctx, OSSL_CALLBACK *cb, void *cbarg);
+ void OP_keymgmt_gen_cleanup(void *genctx);
+
  /* Key object information */
  int OP_keymgmt_get_params(void *keydata, OSSL_PARAM params[]);
  const OSSL_PARAM *OP_keymgmt_gettable_params(void);
@@ -79,6 +88,15 @@ macros in L<openssl-core_numbers.h(7)>, as follows:
 
  OP_keymgmt_new                  OSSL_FUNC_KEYMGMT_NEW
  OP_keymgmt_free                 OSSL_FUNC_KEYMGMT_FREE
+
+ OP_keymgmt_gen_init             OSSL_FUNC_KEYMGMT_GEN_INIT
+ OP_keymgmt_gen_set_template     OSSL_FUNC_KEYMGMT_GEN_SET_TEMPLATE
+ OP_keymgmt_gen_set_params       OSSL_FUNC_KEYMGMT_GEN_SET_PARAMS
+ OP_keymgmt_gen_settable_params  OSSL_FUNC_KEYMGMT_GEN_SETTABLE_PARAMS
+ OP_keymgmt_gen_get_params       OSSL_FUNC_KEYMGMT_GEN_GET_PARAMS
+ OP_keymgmt_gen_gettable_params  OSSL_FUNC_KEYMGMT_GEN_GETTABLE_PARAMS
+ OP_keymgmt_gen                  OSSL_FUNC_KEYMGMT_GEN
+ OP_keymgmt_gen_cleanup          OSSL_FUNC_KEYMGMT_GEN_CLEANUP
 
  OP_keymgmt_get_params           OSSL_FUNC_KEYMGMT_GET_PARAMS
  OP_keymgmt_gettable_params      OSSL_FUNC_KEYMGMT_GETTABLE_PARAMS
@@ -193,12 +211,49 @@ key object, but that is not mandatory.
 
 OP_keymgmt_free() should free the passed I<keydata>.
 
-The constructor and destructor are mandatory, a KEYMGMT implementation
-without them will not be accepted.
+OP_keymgmt_gen_init(), OP_keymgmt_gen_set_template(),
+OP_keymgmt_gen_set_params(), OP_keymgmt_gen_settable_params(),
+OP_keymgmt_gen_get_params(), OP_keymgmt_gen_gettable_params(),
+OP_keymgmt_gen() and OP_keymgmt_gen_cleanup() work together as a more
+elaborate context based key object constructor.
 
-=for comment when new constructors appear, it's sufficient if only one
-of them is present.  The remark above will have to change to reflect
-that.
+OP_keymgmt_gen_init() should create the key object generation context
+and initialize it with I<selections>, which will determine what kind
+of contents the key object to be generated should get.
+
+OP_keymgmt_gen_set_template() should add I<template> to the context
+I<genctx>.  The I<template> is assumed to be a key object constructed
+with the same KEYMGMT, and from which content that the implementation
+chooses can be used as a template for the key object to be generated.
+Typically, the generation of a DSA or DH key would get the domain
+parameters from this I<template>.
+
+OP_keymgmt_gen_set_params() should set additional parameters from
+I<params> in the key object generation context I<genctx>.
+
+OP_keymgmt_gen_settable_params() should return a constant array of
+descriptor B<OSSL_PARAM>, for parameters that OP_keymgmt_gen_set_params() 
+can handle.
+
+OP_keymgmt_gen_get_params() should extract information data associated
+with the key object generation context I<genctx>.
+
+OP_keymgmt_gen_gettable_params() should return a constant array of
+descriptor B<OSSL_PARAM>, for parameters that OP_keymgmt_gen_get_params() 
+can handle.
+
+OP_keymgmt_gen() should perform the key object generation itself, and
+return the result.  The callback I<cb> should be called at regular
+intervals with indications on how the key object generation
+progresses.
+
+OP_keymgmt_gen_cleanup() should clean up and free the key object
+generation context I<genctx>
+
+At least one of OP_keymgmt_new() and OP_keymgmt_gen() are mandatory,
+as well as OP_keymgmt_free().  Additionally, if OP_keymgmt_gen() is
+present, OP_keymgmt_gen_init() and OP_keymgmt_gen_cleanup() must be
+present as well.
 
 =head2 Key Object Information Functions
 
@@ -279,32 +334,86 @@ The following Import/Export types are available for the built-in RSA algorithm:
 
 =over 4
 
-=item "n" (B<OSSL_PKEY_PARAM_RSA_N>) <integer>
+=item "n" (B<OSSL_PKEY_PARAM_RSA_N>) <unsigned integer>
 
 The RSA "n" value.
 
-=item "e" (B<OSSL_PKEY_PARAM_RSA_E>) <integer>
+=item "e" (B<OSSL_PKEY_PARAM_RSA_E>) <unsigned integer>
 
 The RSA "e" value.
 
-=item "d" (B<OSSL_PKEY_PARAM_RSA_D>) <integer>
+=item "d" (B<OSSL_PKEY_PARAM_RSA_D>) <unsigned integer>
 
 The RSA "d" value.
 
-=item "rsa-factor" (B<OSSL_PKEY_PARAM_RSA_FACTOR>) <integer>
+=item "rsa-factor1" (B<OSSL_PKEY_PARAM_RSA_FACTOR1>) <unsigned integer>
 
-An RSA factor. In 2 prime RSA these are often known as "p" or "q". This value
-may be repeated up to 10 times in a single key.
+=item "rsa-factor2" (B<OSSL_PKEY_PARAM_RSA_FACTOR2>) <unsigned integer>
 
-=item "rsa-exponent" (B<OSSL_PKEY_PARAM_RSA_EXPONENT>) <integer>
+=item "rsa-factor3" (B<OSSL_PKEY_PARAM_RSA_FACTOR3>) <unsigned integer>
 
-An RSA CRT (Chinese Remainder Theorem) exponent. This value may be repeated up
-to 10 times in a single key.
+=item "rsa-factor4" (B<OSSL_PKEY_PARAM_RSA_FACTOR4>) <unsigned integer>
 
-=item "rsa-coefficient" (B<OSSL_PKEY_PARAM_RSA_COEFFICIENT>) <integer>
+=item "rsa-factor5" (B<OSSL_PKEY_PARAM_RSA_FACTOR5>) <unsigned integer>
 
-An RSA CRT (Chinese Remainder Theorem) coefficient. This value may be repeated
-up to 9 times in a single key.
+=item "rsa-factor6" (B<OSSL_PKEY_PARAM_RSA_FACTOR6>) <unsigned integer>
+
+=item "rsa-factor7" (B<OSSL_PKEY_PARAM_RSA_FACTOR7>) <unsigned integer>
+
+=item "rsa-factor8" (B<OSSL_PKEY_PARAM_RSA_FACTOR8>) <unsigned integer>
+
+=item "rsa-factor9" (B<OSSL_PKEY_PARAM_RSA_FACTOR9>) <unsigned integer>
+
+=item "rsa-factor10" (B<OSSL_PKEY_PARAM_RSA_FACTOR10>) <unsigned integer>
+
+RSA prime factors. The factors are known as "p", "q" and "r_i" in RFC8017.
+Up to eight additional "r_i" prime factors are supported.
+
+=item "rsa-exponent1" (B<OSSL_PKEY_PARAM_RSA_EXPONENT1>) <unsigned integer>
+
+=item "rsa-exponent2" (B<OSSL_PKEY_PARAM_RSA_EXPONENT2>) <unsigned integer>
+
+=item "rsa-exponent3" (B<OSSL_PKEY_PARAM_RSA_EXPONENT3>) <unsigned integer>
+
+=item "rsa-exponent4" (B<OSSL_PKEY_PARAM_RSA_EXPONENT4>) <unsigned integer>
+
+=item "rsa-exponent5" (B<OSSL_PKEY_PARAM_RSA_EXPONENT5>) <unsigned integer>
+
+=item "rsa-exponent6" (B<OSSL_PKEY_PARAM_RSA_EXPONENT6>) <unsigned integer>
+
+=item "rsa-exponent7" (B<OSSL_PKEY_PARAM_RSA_EXPONENT7>) <unsigned integer>
+
+=item "rsa-exponent8" (B<OSSL_PKEY_PARAM_RSA_EXPONENT8>) <unsigned integer>
+
+=item "rsa-exponent9" (B<OSSL_PKEY_PARAM_RSA_EXPONENT9>) <unsigned integer>
+
+=item "rsa-exponent10" (B<OSSL_PKEY_PARAM_RSA_EXPONENT10>) <unsigned integer>
+
+RSA CRT (Chinese Remainder Theorem) exponents. The exponents are known
+as "dP", "dQ" and "d_i in RFC8017".
+Up to eight additional "d_i" exponents are supported.
+
+=item "rsa-coefficient1" (B<OSSL_PKEY_PARAM_RSA_COEFFICIENT1>) <unsigned integer>
+
+=item "rsa-coefficient2" (B<OSSL_PKEY_PARAM_RSA_COEFFICIENT2>) <unsigned integer>
+
+=item "rsa-coefficient3" (B<OSSL_PKEY_PARAM_RSA_COEFFICIENT3>) <unsigned integer>
+
+=item "rsa-coefficient4" (B<OSSL_PKEY_PARAM_RSA_COEFFICIENT4>) <unsigned integer>
+
+=item "rsa-coefficient5" (B<OSSL_PKEY_PARAM_RSA_COEFFICIENT5>) <unsigned integer>
+
+=item "rsa-coefficient6" (B<OSSL_PKEY_PARAM_RSA_COEFFICIENT6>) <unsigned integer>
+
+=item "rsa-coefficient7" (B<OSSL_PKEY_PARAM_RSA_COEFFICIENT7>) <unsigned integer>
+
+=item "rsa-coefficient8" (B<OSSL_PKEY_PARAM_RSA_COEFFICIENT8>) <unsigned integer>
+
+=item "rsa-coefficient9" (B<OSSL_PKEY_PARAM_RSA_COEFFICIENT9>) <unsigned integer>
+
+RSA CRT (Chinese Remainder Theorem) coefficients. The coefficients are known as
+"qInv" and "t_i".
+Up to eight additional "t_i" exponents are supported.
 
 =back
 
@@ -315,23 +424,23 @@ Diffie-Hellman algorithms:
 
 =over 4
 
-=item "pub" (B<OSSL_PKEY_PARAM_PUB_KEY>) <integer> or <octet string>
+=item "pub" (B<OSSL_PKEY_PARAM_PUB_KEY>) <unsigned integer>
 
 The public key value.
 
-=item "priv" (B<OSSL_PKEY_PARAM_PRIV_KEY>) <integer> or <octet string>
+=item "priv" (B<OSSL_PKEY_PARAM_PRIV_KEY>) <unsigned integer>
 
 The private key value.
 
-=item "p" (B<OSSL_PKEY_PARAM_FFC_P>) <integer>
+=item "p" (B<OSSL_PKEY_PARAM_FFC_P>) <unsigned integer>
 
 A DSA or Diffie-Hellman "p" value.
 
-=item "q" (B<OSSL_PKEY_PARAM_FFC_Q>) <integer>
+=item "q" (B<OSSL_PKEY_PARAM_FFC_Q>) <unsigned integer>
 
 A DSA or Diffie-Hellman "q" value.
 
-=item "g" (B<OSSL_PKEY_PARAM_FFC_G>) <integer>
+=item "g" (B<OSSL_PKEY_PARAM_FFC_G>) <unsigned integer>
 
 A DSA or Diffie-Hellman "g" value.
 
@@ -374,7 +483,7 @@ EC curve's cofactor (note for some curves the cofactor is 1).
 
 The public key value in EC point format.
 
-=item "priv" (B<OSSL_PKEY_PARAM_PRIV_KEY>) <integer>
+=item "priv" (B<OSSL_PKEY_PARAM_PRIV_KEY>) <unsigned integer>
 
 The private key value.
 
@@ -384,10 +493,12 @@ The private key value.
 
 See L<OSSL_PARAM(3)> for further details on the parameters structure.
 
-Parameters currently recognised by built-in keymgmt algorithms
-are as follows.
+The Built-in Import/Export Types listed above are also Information Parameters.
 Not all parameters are relevant to, or are understood by all keymgmt
 algorithms:
+
+Parameters currently recognised by built-in keymgmt algorithms
+also include the following.
 
 =over 4
 

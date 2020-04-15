@@ -254,43 +254,12 @@ static const OSSL_ALGORITHM_CAPABLE deflt_ciphers[] = {
     ALG("DES-EDE3-CFB", tdes_ede3_cfb_functions),
     ALG("DES-EDE3-CFB8", tdes_ede3_cfb8_functions),
     ALG("DES-EDE3-CFB1", tdes_ede3_cfb1_functions),
+    ALG("DES3-WRAP:id-smime-alg-CMS3DESwrap", tdes_wrap_cbc_functions),
     ALG("DES-EDE-ECB:DES-EDE", tdes_ede2_ecb_functions),
     ALG("DES-EDE-CBC", tdes_ede2_cbc_functions),
     ALG("DES-EDE-OFB", tdes_ede2_ofb_functions),
     ALG("DES-EDE-CFB", tdes_ede2_cfb_functions),
-    ALG("DESX-CBC:DESX", tdes_desx_cbc_functions),
-    ALG("DES3-WRAP:id-smime-alg-CMS3DESwrap", tdes_wrap_cbc_functions),
-    ALG("DES-ECB", des_ecb_functions),
-    ALG("DES-CBC:DES", des_cbc_functions),
-    ALG("DES-OFB", des_ofb64_functions),
-    ALG("DES-CFB", des_cfb64_functions),
-    ALG("DES-CFB1", des_cfb1_functions),
-    ALG("DES-CFB8", des_cfb8_functions),
 #endif /* OPENSSL_NO_DES */
-#ifndef OPENSSL_NO_BF
-    ALG("BF-ECB", blowfish128ecb_functions),
-    ALG("BF-CBC:BF:BLOWFISH", blowfish128cbc_functions),
-    ALG("BF-OFB", blowfish64ofb64_functions),
-    ALG("BF-CFB", blowfish64cfb64_functions),
-#endif /* OPENSSL_NO_BF */
-#ifndef OPENSSL_NO_IDEA
-    ALG("IDEA-ECB", idea128ecb_functions),
-    ALG("IDEA-CBC:IDEA", idea128cbc_functions),
-    ALG("IDEA-OFB:IDEA-OFB64", idea128ofb64_functions),
-    ALG("IDEA-CFB:IDEA-CFB64", idea128cfb64_functions),
-#endif /* OPENSSL_NO_IDEA */
-#ifndef OPENSSL_NO_CAST
-    ALG("CAST5-ECB", cast5128ecb_functions),
-    ALG("CAST5-CBC:CAST-CBC:CAST", cast5128cbc_functions),
-    ALG("CAST5-OFB", cast564ofb64_functions),
-    ALG("CAST5-CFB", cast564cfb64_functions),
-#endif /* OPENSSL_NO_CAST */
-#ifndef OPENSSL_NO_SEED
-    ALG("SEED-ECB", seed128ecb_functions),
-    ALG("SEED-CBC:SEED", seed128cbc_functions),
-    ALG("SEED-OFB:SEED-OFB128", seed128ofb128_functions),
-    ALG("SEED-CFB:SEED-CFB128", seed128cfb128_functions),
-#endif /* OPENSSL_NO_SEED */
 #ifndef OPENSSL_NO_SM4
     ALG("SM4-ECB", sm4128ecb_functions),
     ALG("SM4-CBC:SM4", sm4128cbc_functions),
@@ -298,27 +267,6 @@ static const OSSL_ALGORITHM_CAPABLE deflt_ciphers[] = {
     ALG("SM4-OFB:SM4-OFB128", sm4128ofb128_functions),
     ALG("SM4-CFB:SM4-CFB128", sm4128cfb128_functions),
 #endif /* OPENSSL_NO_SM4 */
-#ifndef OPENSSL_NO_RC4
-    ALG("RC4", rc4128_functions),
-    ALG("RC4-40", rc440_functions),
-# ifndef OPENSSL_NO_MD5
-    ALG("RC4-HMAC-MD5", rc4_hmac_md5_functions),
-# endif /* OPENSSL_NO_MD5 */
-#endif /* OPENSSL_NO_RC4 */
-#ifndef OPENSSL_NO_RC5
-    ALG("RC5-ECB", rc5128ecb_functions),
-    ALG("RC5-CBC", rc5128cbc_functions),
-    ALG("RC5-OFB", rc5128ofb64_functions),
-    ALG("RC5-CFB", rc5128cfb64_functions),
-#endif /* OPENSSL_NO_RC5 */
-#ifndef OPENSSL_NO_RC2
-    ALG("RC2-ECB", rc2128ecb_functions),
-    ALG("RC2-CBC", rc2128cbc_functions),
-    ALG("RC2-40-CBC", rc240cbc_functions),
-    ALG("RC2-64-CBC", rc264cbc_functions),
-    ALG("RC2-CFB", rc2128cfb128_functions),
-    ALG("RC2-OFB", rc2128ofb128_functions),
-#endif /* OPENSSL_NO_RC2 */
 #ifndef OPENSSL_NO_CHACHA
     ALG("ChaCha20", chacha20_functions),
 # ifndef OPENSSL_NO_POLY1305
@@ -373,7 +321,7 @@ static const OSSL_ALGORITHM deflt_keyexch[] = {
     { "DH:dhKeyAgreement", "provider=default", dh_keyexch_functions },
 #endif
 #ifndef OPENSSL_NO_EC
-    { "ECDH:id-ecPublicKey", "provider=default", ecdh_keyexch_functions },
+    { "ECDH", "provider=default", ecdh_keyexch_functions },
     { "X25519", "provider=default", x25519_keyexch_functions },
     { "X448", "provider=default", x448_keyexch_functions },
 #endif
@@ -385,6 +333,11 @@ static const OSSL_ALGORITHM deflt_signature[] = {
     { "DSA:dsaEncryption", "provider=default", dsa_signature_functions },
 #endif
     { "RSA:rsaEncryption", "provider=default", rsa_signature_functions },
+#ifndef OPENSSL_NO_EC
+    { "ED25519:Ed25519", "provider=default", ed25519_signature_functions },
+    { "ED448:Ed448", "provider=default", ed448_signature_functions },
+    { "ECDSA", "provider=default", ecdsa_signature_functions },
+#endif
     { NULL, NULL, NULL }
 };
 
@@ -405,6 +358,8 @@ static const OSSL_ALGORITHM deflt_keymgmt[] = {
     { "EC:id-ecPublicKey", "provider=default", ec_keymgmt_functions },
     { "X25519", "provider=default", x25519_keymgmt_functions },
     { "X448", "provider=default", x448_keymgmt_functions },
+    { "ED25519", "provider=default", ed25519_keymgmt_functions },
+    { "ED448", "provider=default", ed448_keymgmt_functions },
 #endif
     { NULL, NULL, NULL }
 };
@@ -496,6 +451,32 @@ static const OSSL_ALGORITHM deflt_serializer[] = {
       x448_priv_pem_serializer_functions },
     { "X448", "provider=default,format=pem,type=public",
       x448_pub_pem_serializer_functions },
+
+    { "ED25519", "provider=default,fips=yes,format=text,type=private",
+      ed25519_priv_print_serializer_functions },
+    { "ED25519", "provider=default,fips=yes,format=text,type=public",
+      ed25519_pub_print_serializer_functions },
+    { "ED25519", "provider=default,fips=yes,format=der,type=private",
+      ed25519_priv_der_serializer_functions },
+    { "ED25519", "provider=default,fips=yes,format=der,type=public",
+      ed25519_pub_der_serializer_functions },
+    { "ED25519", "provider=default,fips=yes,format=pem,type=private",
+      ed25519_priv_pem_serializer_functions },
+    { "ED25519", "provider=default,fips=yes,format=pem,type=public",
+      ed25519_pub_pem_serializer_functions },
+
+    { "ED448", "provider=default,format=text,type=private",
+      ed448_priv_print_serializer_functions },
+    { "ED448", "provider=default,format=text,type=public",
+      ed448_pub_print_serializer_functions },
+    { "ED448", "provider=default,format=der,type=private",
+      ed448_priv_der_serializer_functions },
+    { "ED448", "provider=default,format=der,type=public",
+      ed448_pub_der_serializer_functions },
+    { "ED448", "provider=default,format=pem,type=private",
+      ed448_priv_pem_serializer_functions },
+    { "ED448", "provider=default,format=pem,type=public",
+      ed448_pub_pem_serializer_functions },
 
     { "EC", "provider=default,fips=yes,format=text,type=private",
       ec_priv_text_serializer_functions },

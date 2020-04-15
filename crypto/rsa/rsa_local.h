@@ -29,13 +29,15 @@ DECLARE_ASN1_ITEM(RSA_PRIME_INFO)
 DEFINE_STACK_OF(RSA_PRIME_INFO)
 
 struct rsa_st {
-    OPENSSL_CTX *libctx;
-
     /*
-     * The first parameter is used to pickup errors where this is passed
-     * instead of an EVP_PKEY, it is set to 0
+     * #legacy
+     * The first field is used to pickup errors where this is passed
+     * instead of an EVP_PKEY.  It is always zero.
+     * THIS MUST REMAIN THE FIRST FIELD.
      */
-    int pad;
+    int dummy_zero;
+
+    OPENSSL_CTX *libctx;
     int32_t version;
     const RSA_METHOD *meth;
     /* functional reference if 'meth' is ENGINE-provided */
@@ -48,13 +50,12 @@ struct rsa_st {
     BIGNUM *dmp1;
     BIGNUM *dmq1;
     BIGNUM *iqmp;
-    /* TODO(3.0): Support PSS in FIPS_MODE */
+    /* If a PSS only key this contains the parameter restrictions */
+    RSA_PSS_PARAMS *pss;
 #ifndef FIPS_MODE
     /* for multi-prime RSA, defined in RFC 8017 */
     STACK_OF(RSA_PRIME_INFO) *prime_infos;
-    /* If a PSS only key this contains the parameter restrictions */
-    RSA_PSS_PARAMS *pss;
-    /* be careful using this if the RSA structure is shared */
+    /* Be careful using this if the RSA structure is shared */
     CRYPTO_EX_DATA ex_data;
 #endif
     CRYPTO_REF_COUNT references;
@@ -167,5 +168,20 @@ int rsa_fips186_4_gen_prob_primes(RSA *rsa, BIGNUM *p1, BIGNUM *p2,
                                   const BIGNUM *Xq, const BIGNUM *Xq1,
                                   const BIGNUM *Xq2, int nbits,
                                   const BIGNUM *e, BN_CTX *ctx, BN_GENCB *cb);
+
+int rsa_padding_add_SSLv23_with_libctx(OPENSSL_CTX *libctx, unsigned char *to,
+                                       int tlen, const unsigned char *from,
+                                       int flen);
+int rsa_padding_add_PKCS1_type_2_with_libctx(OPENSSL_CTX *libctx,
+                                             unsigned char *to, int tlen,
+                                             const unsigned char *from,
+                                             int flen);
+int rsa_padding_add_PKCS1_OAEP_mgf1_with_libctx(OPENSSL_CTX *libctx,
+                                                unsigned char *to, int tlen,
+                                                const unsigned char *from,
+                                                int flen,
+                                                const unsigned char *param,
+                                                int plen, const EVP_MD *md,
+                                                const EVP_MD *mgf1md);
 
 #endif /* OSSL_CRYPTO_RSA_LOCAL_H */

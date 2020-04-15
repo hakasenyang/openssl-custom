@@ -118,6 +118,7 @@ static int msg_total_size_log_cb(const char *func, const char *file, int line,
                                  OSSL_CMP_severity level, const char *msg)
 {
     msg_total_size += strlen(msg);
+    TEST_note("total=%d len=%zu msg='%s'\n", msg_total_size, strlen(msg), msg);
     return 1;
 }
 
@@ -491,7 +492,6 @@ static X509_STORE *X509_STORE_new_1(void)
 
 #define IS_NEG(x) ((x) < 0)
 #define IS_0(x) ((x) == 0) /* for any type */
-#define IS_DEFAULT_PORT(x) ((x) == OSSL_CMP_DEFAULT_PORT)
 #define DROP(x) (void)(x) /* dummy free() for non-pointer and function types */
 
 #define ERR(x) (CMPerr(0, CMP_R_NULL_ARGUMENT), x)
@@ -519,7 +519,7 @@ static X509_STORE *X509_STORE_new_1(void)
 #define DEFINE_SET_TEST_DEFAULT(OSSL_CMP, CTX, N, DUP, FIELD, TYPE, DEFAULT) \
     static TYPE *OSSL_CMP_CTX_get0_##FIELD(const CMP_CTX *ctx) \
     { \
-        return ctx == NULL ? ERR(NULL) : ctx->FIELD; \
+        return ctx == NULL ? ERR(NULL) : (TYPE *)ctx->FIELD; \
     } \
     DEFINE_SET_GET_TEST_DEFAULT(OSSL_CMP, CTX, N, 0, DUP, FIELD, TYPE, DEFAULT)
 #define DEFINE_SET_TEST(OSSL_CMP, CTX, N, DUP, FIELD, TYPE) \
@@ -534,16 +534,16 @@ static X509_STORE *X509_STORE_new_1(void)
                              STACK_OF(TYPE)*, NULL, IS_0, \
                              sk_##TYPE##_new_null(), sk_##TYPE##_free)
 
-typedef OSSL_HTTP_bio_cb_t OSSL_cmp_http_cb_t;
+typedef OSSL_HTTP_bio_cb_t OSSL_CMP_http_cb_t;
 #define DEFINE_SET_CB_TEST(FIELD) \
-    static OSSL_cmp_##FIELD##_t OSSL_CMP_CTX_get_##FIELD(const CMP_CTX *ctx) \
+    static OSSL_CMP_##FIELD##_t OSSL_CMP_CTX_get_##FIELD(const CMP_CTX *ctx) \
     { \
         if (ctx == NULL) \
             CMPerr(0, CMP_R_NULL_ARGUMENT); \
         return ctx == NULL ? NULL /* cannot use ERR(NULL) here */ : ctx->FIELD;\
     } \
     DEFINE_SET_GET_BASE_TEST(OSSL_CMP_CTX, set, get, 0, FIELD, \
-                             OSSL_cmp_##FIELD##_t, NULL, IS_0, \
+                             OSSL_CMP_##FIELD##_t, NULL, IS_0, \
                              test_##FIELD, DROP)
 #define DEFINE_SET_GET_P_VOID_TEST(FIELD) \
     DEFINE_SET_GET_BASE_TEST(OSSL_CMP_CTX, set, get, 0, FIELD, void *, \
@@ -554,12 +554,12 @@ typedef OSSL_HTTP_bio_cb_t OSSL_cmp_http_cb_t;
                              DEFAULT, 1, DROP)
 #define DEFINE_SET_GET_INT_TEST(OSSL_CMP, CTX, FIELD) \
     DEFINE_SET_GET_INT_TEST_DEFAULT(OSSL_CMP, CTX, FIELD, IS_NEG)
-#define DEFINE_SET_PORT_TEST(FIELD) \
+#define DEFINE_SET_INT_TEST(FIELD) \
     static int OSSL_CMP_CTX_get_##FIELD(const CMP_CTX *ctx) \
     { \
         return ctx == NULL ? ERR(-1) : ctx->FIELD; \
     } \
-    DEFINE_SET_GET_INT_TEST_DEFAULT(OSSL_CMP, CTX, FIELD, IS_DEFAULT_PORT)
+    DEFINE_SET_GET_INT_TEST_DEFAULT(OSSL_CMP, CTX, FIELD, IS_0)
 
 #define DEFINE_SET_GET_ARG_FN(SETN, GETN, FIELD, ARG, T) \
     static int OSSL_CMP_CTX_##SETN##_##FIELD##_##ARG(CMP_CTX *ctx, T val) \
@@ -715,10 +715,10 @@ DEFINE_SET_GET_BASE_TEST(OSSL_CMP_CTX, set, get, 0, option_16, int, -1, IS_0, \
 DEFINE_SET_CB_TEST(log_cb)
 
 DEFINE_SET_TEST_DEFAULT(OSSL_CMP, CTX, 1, 1, serverPath, char, IS_0)
-DEFINE_SET_TEST(OSSL_CMP, CTX, 1, 1, serverName, char)
-DEFINE_SET_PORT_TEST(serverPort)
-DEFINE_SET_TEST(OSSL_CMP, CTX, 1, 1, proxyName, char)
-DEFINE_SET_PORT_TEST(proxyPort)
+DEFINE_SET_TEST(OSSL_CMP, CTX, 1, 1, server, char)
+DEFINE_SET_INT_TEST(serverPort)
+DEFINE_SET_TEST(OSSL_CMP, CTX, 1, 1, proxy, char)
+DEFINE_SET_TEST(OSSL_CMP, CTX, 1, 1, no_proxy, char)
 DEFINE_SET_CB_TEST(http_cb)
 DEFINE_SET_GET_P_VOID_TEST(http_cb_arg)
 DEFINE_SET_CB_TEST(transfer_cb)
@@ -800,10 +800,10 @@ int setup_tests(void)
 #endif
     /* message transfer: */
     ADD_TEST(test_CTX_set1_get0_serverPath);
-    ADD_TEST(test_CTX_set1_get0_serverName);
+    ADD_TEST(test_CTX_set1_get0_server);
     ADD_TEST(test_CTX_set_get_serverPort);
-    ADD_TEST(test_CTX_set1_get0_proxyName);
-    ADD_TEST(test_CTX_set_get_proxyPort);
+    ADD_TEST(test_CTX_set1_get0_proxy);
+    ADD_TEST(test_CTX_set1_get0_no_proxy);
     ADD_TEST(test_CTX_set_get_http_cb);
     ADD_TEST(test_CTX_set_get_http_cb_arg);
     ADD_TEST(test_CTX_set_get_transfer_cb);

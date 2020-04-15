@@ -192,7 +192,8 @@ DEFINE_STACK_OF(void)
 # define CRYPTO_EX_INDEX_RAND_DRBG       15
 # define CRYPTO_EX_INDEX_DRBG            CRYPTO_EX_INDEX_RAND_DRBG
 # define CRYPTO_EX_INDEX_OPENSSL_CTX     16
-# define CRYPTO_EX_INDEX__COUNT          17
+# define CRYPTO_EX_INDEX_EVP_PKEY        17
+# define CRYPTO_EX_INDEX__COUNT          18
 
 typedef void CRYPTO_EX_new (void *parent, void *ptr, CRYPTO_EX_DATA *ad,
                            int idx, long argl, void *argp);
@@ -493,6 +494,7 @@ CRYPTO_THREAD_ID CRYPTO_THREAD_get_current_id(void);
 int CRYPTO_THREAD_compare_id(CRYPTO_THREAD_ID a, CRYPTO_THREAD_ID b);
 
 OPENSSL_CTX *OPENSSL_CTX_new(void);
+int OPENSSL_CTX_load_config(OPENSSL_CTX *ctx, const char *config_file);
 void OPENSSL_CTX_free(OPENSSL_CTX *);
 
 # ifdef  __cplusplus

@@ -10,6 +10,7 @@
 
 #ifndef OPENSSL_SSLERR_H
 # define OPENSSL_SSLERR_H
+# pragma once
 
 # include <openssl/opensslconf.h>
 # include <openssl/symhacks.h>
@@ -88,6 +89,7 @@ int ERR_load_SSL_strings(void);
 #  define SSL_F_OSSL_STATEM_SERVER_CONSTRUCT_MESSAGE       0
 #  define SSL_F_OSSL_STATEM_SERVER_POST_PROCESS_MESSAGE    0
 #  define SSL_F_OSSL_STATEM_SERVER_POST_WORK               0
+#  define SSL_F_OSSL_STATEM_SERVER_PRE_WORK                0
 #  define SSL_F_OSSL_STATEM_SERVER_PROCESS_MESSAGE         0
 #  define SSL_F_OSSL_STATEM_SERVER_READ_TRANSITION         0
 #  define SSL_F_OSSL_STATEM_SERVER_WRITE_TRANSITION        0
@@ -455,6 +457,7 @@ int ERR_load_SSL_strings(void);
 /*
  * SSL reason codes.
  */
+# define SSL_R_ALGORITHM_FETCH_FAILED                     295
 # define SSL_R_APPLICATION_DATA_AFTER_CLOSE_NOTIFY        291
 # define SSL_R_APP_DATA_IN_HANDSHAKE                      100
 # define SSL_R_ATTEMPT_TO_REUSE_SESSION_IN_DIFFERENT_CONTEXT 272
@@ -603,8 +606,8 @@ int ERR_load_SSL_strings(void);
 # define SSL_R_MISSING_TMP_DH_KEY                         171
 # define SSL_R_MISSING_TMP_ECDH_KEY                       311
 # define SSL_R_MIXED_HANDSHAKE_AND_NON_HANDSHAKE_DATA     293
-# define SSL_R_MIXED_SPECIAL_OPERATOR_WITH_GROUPS         295
-# define SSL_R_NESTED_GROUP                               296
+# define SSL_R_MIXED_SPECIAL_OPERATOR_WITH_GROUPS         296
+# define SSL_R_NESTED_GROUP                               297
 # define SSL_R_NOT_ON_RECORD_BOUNDARY                     182
 # define SSL_R_NOT_REPLACING_CERTIFICATE                  289
 # define SSL_R_NOT_SERVER                                 284
@@ -736,9 +739,9 @@ int ERR_load_SSL_strings(void);
 # define SSL_R_UNEXPECTED_CCS_MESSAGE                     262
 # define SSL_R_UNEXPECTED_END_OF_EARLY_DATA               178
 # define SSL_R_UNEXPECTED_EOF_WHILE_READING               294
-# define SSL_R_UNEXPECTED_GROUP_CLOSE                     297
+# define SSL_R_UNEXPECTED_GROUP_CLOSE                     299
 # define SSL_R_UNEXPECTED_MESSAGE                         244
-# define SSL_R_UNEXPECTED_OPERATOR_IN_GROUP               299
+# define SSL_R_UNEXPECTED_OPERATOR_IN_GROUP               305
 # define SSL_R_UNEXPECTED_RECORD                          245
 # define SSL_R_UNINITIALIZED                              276
 # define SSL_R_UNKNOWN_ALERT_TYPE                         246
