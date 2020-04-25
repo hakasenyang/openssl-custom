@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2018 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2015-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -655,7 +655,9 @@ int evp_keymgmt_util_match(EVP_PKEY *pk1, EVP_PKEY *pk2, int selection);
 int evp_keymgmt_util_copy(EVP_PKEY *to, EVP_PKEY *from, int selection);
 void *evp_keymgmt_util_gen(EVP_PKEY *target, EVP_KEYMGMT *keymgmt,
                            void *genctx, OSSL_CALLBACK *cb, void *cbarg);
-
+int evp_keymgmt_util_get_deflt_digest_name(EVP_KEYMGMT *keymgmt,
+                                           void *keydata,
+                                           char *mdname, size_t mdname_sz);
 
 /*
  * KEYMGMT provider interface functions
@@ -736,4 +738,7 @@ const EVP_MD *evp_get_digestbyname_ex(OPENSSL_CTX *libctx, const char *name);
  */
 int evp_pkey_ctx_set_params_strict(EVP_PKEY_CTX *ctx, OSSL_PARAM *params);
 int evp_pkey_ctx_get_params_strict(EVP_PKEY_CTX *ctx, OSSL_PARAM *params);
+
+EVP_PKEY *evp_pkcs82pkey_int(const PKCS8_PRIV_KEY_INFO *p8, OPENSSL_CTX *libctx,
+                             const char *propq);
 #endif /* !defined(FIPS_MODE) */

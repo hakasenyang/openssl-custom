@@ -49,6 +49,7 @@ static OSSL_OP_keymgmt_export_fn ec_export;
 static OSSL_OP_keymgmt_export_types_fn ec_export_types;
 static OSSL_OP_keymgmt_query_operation_name_fn ec_query_operation_name;
 
+#define EC_DEFAULT_MD "SHA256"
 #define EC_POSSIBLE_SELECTIONS                                                 \
     (OSSL_KEYMGMT_SELECT_KEYPAIR | OSSL_KEYMGMT_SELECT_ALL_PARAMETERS)
 
@@ -116,6 +117,7 @@ int key_to_params(const EC_KEY *eckey, OSSL_PARAM_BLD *tmpl,
     const EC_GROUP *ecg = NULL;
     size_t pub_key_len = 0;
     int ret = 0;
+    BN_CTX *bnctx = NULL;
 
     if (eckey == NULL
         || (ecg = EC_KEY_get0_group(eckey)) == NULL)
@@ -125,10 +127,18 @@ int key_to_params(const EC_KEY *eckey, OSSL_PARAM_BLD *tmpl,
     pub_point = EC_KEY_get0_public_key(eckey);
 
     if (pub_point != NULL) {
+        /*
+         * EC_POINT_point2buf() can generate random numbers in some
+         * implementations so we need to ensure we use the correct libctx.
+         */
+        bnctx = BN_CTX_new_ex(ec_key_get_libctx(eckey));
+        if (bnctx == NULL)
+            goto err;
+
         /* convert pub_point to a octet string according to the SECG standard */
         if ((pub_key_len = EC_POINT_point2buf(ecg, pub_point,
                                               POINT_CONVERSION_COMPRESSED,
-                                              pub_key, NULL)) == 0
+                                              pub_key, bnctx)) == 0
             || !ossl_param_build_set_octet_string(tmpl, params,
                                                   OSSL_PKEY_PARAM_PUB_KEY,
                                                   *pub_key, pub_key_len))
@@ -184,6 +194,7 @@ int key_to_params(const EC_KEY *eckey, OSSL_PARAM_BLD *tmpl,
     }
     ret = 1;
  err:
+    BN_CTX_free(bnctx);
     return ret;
 }
 
@@ -480,6 +491,10 @@ int ec_get_params(void *key, OSSL_PARAM params[])
         if (!OSSL_PARAM_set_int(p, sec_bits))
             return 0;
     }
+
+    if ((p = OSSL_PARAM_locate(params, OSSL_PKEY_PARAM_DEFAULT_DIGEST)) != NULL
+        && !OSSL_PARAM_set_utf8_string(p, EC_DEFAULT_MD))
+        return 0;
 
     p = OSSL_PARAM_locate(params, OSSL_PKEY_PARAM_USE_COFACTOR_ECDH);
     if (p != NULL) {

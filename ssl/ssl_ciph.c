@@ -22,6 +22,9 @@
 #include "internal/thread_once.h"
 #include "internal/cryptlib.h"
 
+DEFINE_STACK_OF(SSL_COMP)
+DEFINE_STACK_OF_CONST(SSL_CIPHER)
+
 #define SSL_ENC_DES_IDX         0
 #define SSL_ENC_3DES_IDX        1
 #define SSL_ENC_RC4_IDX         2

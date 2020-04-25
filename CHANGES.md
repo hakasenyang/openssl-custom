@@ -24,6 +24,14 @@ OpenSSL 3.0
 
 ### Changes between 1.1.1 and 3.0 [xx XXX xxxx] ###
 
+ * Deprecated EC_POINT_set_Jprojective_coordinates_GFp() and
+   EC_POINT_get_Jprojective_coordinates_GFp(). These functions are not widely
+   used and applications should instead use the
+   L<EC_POINT_set_affine_coordinates(3)> and
+   L<EC_POINT_get_affine_coordinates(3)> functions.
+
+   *Billy Bob Brumley*
+
  * Added OSSL_PARAM_BLD to the public interface.  This allows OSSL_PARAM
    arrays to be more easily constructed via a series of utility functions.
    Create a parameter builder using OSSL_PARAM_BLD_new(), add parameters using
@@ -79,10 +87,17 @@ OpenSSL 3.0
 
    *Richard Levitte*
 
- * The command line utilities ecparam and ec have been deprecated.  Instead
-   use the pkeyparam, pkey and genpkey programs.
+ * Added an implementation of CMP and CRMF (RFC 4210, RFC 4211 RFC 6712).
+   This adds crypto/cmp/, crpyto/crmf/, and test/cmp_*.
+   See L<OSSL_CMP_exec_IR_ses(3)> as starting point.
 
-   *Paul Dale*
+   *David von Oheimb*
+
+ * Generalized the HTTP client code from crypto/ocsp/ into crpyto/http/.
+   The legacy OCSP-focused and only partly documented API is retained.
+   See L<OSSL_CMP_MSG_http_perform(3)> etc. for details.
+
+   *David von Oheimb*
 
  * All of the low level RSA functions have been deprecated including:
 
@@ -138,25 +153,35 @@ OpenSSL 3.0
    *Kurt Roeckx*
 
  * The command line utilities dhparam, dsa, gendsa and dsaparam have been
-   deprecated.  Instead use the pkeyparam, pkey, genpkey and pkeyparam
-   programs respectively.
+   modified to use PKEY APIs.  These commands are now in maintenance mode
+   and no new features will be added to them.
+
+   *Paul Dale*
+
+ * The command line utility rsautl has been deprecated.
+   Instead use the pkeyutl program.
+
+   *Paul Dale*
+
+ * The command line utilities genrsa and rsa have been modified to use PKEY
+   APIs  These commands are now in maintenance mode and no new features will
+   be added to them.
 
    *Paul Dale*
 
  * All of the low level DH functions have been deprecated including:
 
-   DH_OpenSSL, DH_set_default_method, DH_get_default_method, DH_set_method,
-   DH_new_method, DH_bits, DH_size, DH_security_bits, DH_get_ex_new_index,
-   DH_set_ex_data, DH_get_ex_data, DH_generate_parameters_ex,
-   DH_check_params_ex, DH_check_ex, DH_check_pub_key_ex,
-   DH_check, DH_check_pub_key, DH_generate_key, DH_compute_key,
-   DH_compute_key_padded, DHparams_print_fp, DHparams_print, DH_get_nid,
-   DH_KDF_X9_42, DH_get0_engine, DH_get_length, DH_set_length, DH_meth_new,
+   DH_OpenSSL, DH_set_default_method, DH_get_default_method,
+   DH_set_method, DH_new_method, DH_bits, DH_size, DH_security_bits,
+   DH_get_ex_new_index, DH_set_ex_data, DH_get_ex_data,
+   DH_generate_parameters_ex, DH_check_params_ex, DH_check_ex,
+   DH_check_pub_key_ex, DH_check, DH_check_pub_key, DH_generate_key,
+   DH_compute_key, DH_compute_key_padded, DHparams_print_fp,
+   DHparams_print, DH_get_nid, DH_KDF_X9_42, DH_get0_engine, DH_meth_new,
    DH_meth_free, DH_meth_dup, DH_meth_get0_name, DH_meth_set1_name,
    DH_meth_get_flags, DH_meth_set_flags, DH_meth_get0_app_data,
-   DH_meth_set0_app_data, DH_meth_get_generate_key,
-   DH_meth_set_generate_key, DH_meth_get_compute_key,
-   DH_meth_set_compute_key, DH_meth_get_bn_mod_exp,
+   DH_meth_set0_app_data, DH_meth_get_generate_key, DH_meth_set_generate_key,
+   DH_meth_get_compute_key, DH_meth_set_compute_key, DH_meth_get_bn_mod_exp,
    DH_meth_set_bn_mod_exp, DH_meth_get_init, DH_meth_set_init,
    DH_meth_get_finish, DH_meth_set_finish, DH_meth_get_generate_params
    and DH_meth_set_generate_params.
@@ -391,6 +416,11 @@ OpenSSL 3.0
  * Most memory-debug features have been deprecated, and the functionality
    replaced with no-ops.
 
+   *Rich Salz*
+ 
+ * Added documentation for the STACK API. OpenSSL only defines the STACK
+   functions where they are used.
+  
    *Rich Salz*
 
  * Introduced a new method type and API, OSSL_SERIALIZER, to

@@ -1,5 +1,5 @@
 /*
- * Copyright 2007-2019 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2007-2020 The OpenSSL Project Authors. All Rights Reserved.
  * Copyright Nokia 2007-2019
  * Copyright Siemens AG 2015-2019
  *
@@ -18,6 +18,8 @@
 #include <openssl/err.h>
 #include <openssl/x509.h>
 
+DEFINE_STACK_OF(X509)
+
 /*
  * This function is also used for verification from cmp_vfy.
  *
@@ -35,7 +37,7 @@ ASN1_BIT_STRING *ossl_cmp_calc_protection(const OSSL_CMP_MSG *msg,
                                           EVP_PKEY *pkey)
 {
     ASN1_BIT_STRING *prot = NULL;
-    CMP_PROTECTEDPART prot_part;
+    OSSL_CMP_PROTECTEDPART prot_part;
     const ASN1_OBJECT *algorOID = NULL;
     int len;
     size_t prot_part_der_len;
@@ -58,7 +60,7 @@ ASN1_BIT_STRING *ossl_cmp_calc_protection(const OSSL_CMP_MSG *msg,
     prot_part.header = msg->header;
     prot_part.body = msg->body;
 
-    len = i2d_CMP_PROTECTEDPART(&prot_part, &prot_part_der);
+    len = i2d_OSSL_CMP_PROTECTEDPART(&prot_part, &prot_part_der);
     if (len < 0 || prot_part_der == NULL) {
         CMPerr(0, CMP_R_ERROR_CALCULATING_PROTECTION);
         goto end;
