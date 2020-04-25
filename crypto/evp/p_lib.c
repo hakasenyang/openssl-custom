@@ -36,7 +36,6 @@
 #include "internal/evp.h"
 #include "internal/provider.h"
 #include "evp_local.h"
-DEFINE_STACK_OF(X509_ATTRIBUTE)
 
 #include "crypto/ec.h"
 

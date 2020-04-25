@@ -15,8 +15,6 @@
 #include <openssl/x509v3.h>
 #include <openssl/trace.h>
 
-DEFINE_STACK_OF(CONF_VALUE)
-
 /* Algorithm configuration module. */
 
 /* TODO(3.0): the config module functions should be passed a library context */

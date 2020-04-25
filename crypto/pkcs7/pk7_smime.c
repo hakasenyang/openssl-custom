@@ -14,12 +14,8 @@
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 
-#define BUFFERSIZE 4096
 
-DEFINE_STACK_OF(X509)
-DEFINE_STACK_OF(X509_ATTRIBUTE)
-DEFINE_STACK_OF(X509_ALGOR)
-DEFINE_STACK_OF(PKCS7_SIGNER_INFO)
+#define BUFFERSIZE 4096
 
 static int pkcs7_copy_existing_digest(PKCS7 *p7, PKCS7_SIGNER_INFO *si);
 
