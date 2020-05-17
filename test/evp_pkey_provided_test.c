@@ -130,7 +130,12 @@ static int test_print_key_using_pem(const char *alg, const EVP_PKEY *pk)
     if (!TEST_ptr(membio))
         goto err;
 
-    if (!TEST_true(EVP_PKEY_print_private(membio, pk, 0, NULL))
+    if (/* Output Encrypted private key in PEM form */
+        !TEST_true(PEM_write_bio_PrivateKey(bio_out, pk, EVP_aes_256_cbc(),
+                                            (unsigned char *)"pass", 4,
+                                            NULL, NULL))
+        /* Private key in text form */
+        || !TEST_true(EVP_PKEY_print_private(membio, pk, 0, NULL))
         || !TEST_true(compare_with_file(alg, PRIV_TEXT, membio))
         /* Public key in PEM form */
         || !TEST_true(PEM_write_bio_PUBKEY(membio, pk))
@@ -138,11 +143,7 @@ static int test_print_key_using_pem(const char *alg, const EVP_PKEY *pk)
         /* Unencrypted private key in PEM form */
         || !TEST_true(PEM_write_bio_PrivateKey(membio, pk,
                                                NULL, NULL, 0, NULL, NULL))
-        || !TEST_true(compare_with_file(alg, PRIV_PEM, membio))
-        /* Encrypted private key in PEM form */
-        || !TEST_true(PEM_write_bio_PrivateKey(bio_out, pk, EVP_aes_256_cbc(),
-                                               (unsigned char *)"pass", 4,
-                                               NULL, NULL)))
+        || !TEST_true(compare_with_file(alg, PRIV_PEM, membio)))
         goto err;
 
     ret = 1;
@@ -1211,6 +1212,25 @@ static int test_fromdata_dsa_fips186_4(void)
 
     return ret;
 }
+
+static int test_check_dsa(void)
+{
+    int ret = 0;
+    EVP_PKEY_CTX *ctx = NULL;
+
+    if (!TEST_ptr(ctx = EVP_PKEY_CTX_new_from_name(NULL, "DSA", NULL))
+        || !TEST_false(EVP_PKEY_check(ctx))
+        || !TEST_false(EVP_PKEY_public_check(ctx))
+        || !TEST_false(EVP_PKEY_private_check(ctx))
+        || !TEST_false(EVP_PKEY_pairwise_check(ctx)))
+       goto err;
+
+    ret = 1;
+ err:
+    EVP_PKEY_CTX_free(ctx);
+
+    return ret;
+}
 #endif /* OPENSSL_NO_DSA */
 
 
@@ -1231,6 +1251,7 @@ int setup_tests(void)
     ADD_TEST(test_fromdata_dh_named_group);
 #endif
 #ifndef OPENSSL_NO_DSA
+    ADD_TEST(test_check_dsa);
     ADD_TEST(test_fromdata_dsa_fips186_4);
 #endif
 #ifndef OPENSSL_NO_EC

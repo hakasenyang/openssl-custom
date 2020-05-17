@@ -32,6 +32,8 @@
 # include <openssl/dsa.h>
 #endif
 
+DEFINE_STACK_OF(CONF_VALUE)
+DEFINE_STACK_OF_STRING()
 
 #define BITS            "default_bits"
 #define KEYFILE         "default_keyfile"
@@ -135,7 +137,7 @@ const OPTIONS req_options[] = {
 
     OPT_SECTION("Keys and Signing"),
     {"key", OPT_KEY, 's', "Private key to use"},
-    {"keyform", OPT_KEYFORM, 'f', "Key file format"},
+    {"keyform", OPT_KEYFORM, 'f', "Key file format (ENGINE, other values ignored)"},
     {"pubkey", OPT_PUBKEY, '-', "Output public key"},
     {"keyout", OPT_KEYOUT, '>', "File to send the key to"},
     {"passin", OPT_PASSIN, 's', "Private key password source"},

@@ -65,7 +65,7 @@ EC_GROUP *EC_GROUP_new_ex(OPENSSL_CTX *libctx, const EC_METHOD *meth)
     return NULL;
 }
 
-#ifndef FIPS_MODE
+#ifndef FIPS_MODULE
 EC_GROUP *EC_GROUP_new(const EC_METHOD *meth)
 {
     return EC_GROUP_new_ex(NULL, meth);
@@ -597,7 +597,7 @@ int EC_GROUP_cmp(const EC_GROUP *a, const EC_GROUP *b, BN_CTX *ctx)
 {
     int r = 0;
     BIGNUM *a1, *a2, *a3, *b1, *b2, *b3;
-#ifndef FIPS_MODE
+#ifndef FIPS_MODULE
     BN_CTX *ctx_new = NULL;
 #endif
 
@@ -612,7 +612,7 @@ int EC_GROUP_cmp(const EC_GROUP *a, const EC_GROUP *b, BN_CTX *ctx)
     if (a->meth->flags & EC_FLAGS_CUSTOM_CURVE)
         return 0;
 
-#ifndef FIPS_MODE
+#ifndef FIPS_MODULE
     if (ctx == NULL)
         ctx_new = ctx = BN_CTX_new();
 #endif
@@ -628,7 +628,7 @@ int EC_GROUP_cmp(const EC_GROUP *a, const EC_GROUP *b, BN_CTX *ctx)
     b3 = BN_CTX_get(ctx);
     if (b3 == NULL) {
         BN_CTX_end(ctx);
-#ifndef FIPS_MODE
+#ifndef FIPS_MODULE
         BN_CTX_free(ctx_new);
 #endif
         return -1;
@@ -680,7 +680,7 @@ int EC_GROUP_cmp(const EC_GROUP *a, const EC_GROUP *b, BN_CTX *ctx)
     }
 end:
     BN_CTX_end(ctx);
-#ifndef FIPS_MODE
+#ifndef FIPS_MODULE
     BN_CTX_free(ctx_new);
 #endif
     return r;
@@ -1041,13 +1041,14 @@ int EC_POINTs_make_affine(const EC_GROUP *group, size_t num,
  * methods.
  */
 
+#ifndef OPENSSL_NO_DEPRECATED_3_0
 int EC_POINTs_mul(const EC_GROUP *group, EC_POINT *r, const BIGNUM *scalar,
                   size_t num, const EC_POINT *points[],
                   const BIGNUM *scalars[], BN_CTX *ctx)
 {
     int ret = 0;
     size_t i = 0;
-#ifndef FIPS_MODE
+#ifndef FIPS_MODULE
     BN_CTX *new_ctx = NULL;
 #endif
 
@@ -1066,7 +1067,7 @@ int EC_POINTs_mul(const EC_GROUP *group, EC_POINT *r, const BIGNUM *scalar,
         }
     }
 
-#ifndef FIPS_MODE
+#ifndef FIPS_MODULE
     if (ctx == NULL)
         ctx = new_ctx = BN_CTX_secure_new();
 #endif
@@ -1081,26 +1082,51 @@ int EC_POINTs_mul(const EC_GROUP *group, EC_POINT *r, const BIGNUM *scalar,
         /* use default */
         ret = ec_wNAF_mul(group, r, scalar, num, points, scalars, ctx);
 
-#ifndef FIPS_MODE
+#ifndef FIPS_MODULE
     BN_CTX_free(new_ctx);
 #endif
     return ret;
 }
+#endif
 
 int EC_POINT_mul(const EC_GROUP *group, EC_POINT *r, const BIGNUM *g_scalar,
                  const EC_POINT *point, const BIGNUM *p_scalar, BN_CTX *ctx)
 {
-    /* just a convenient interface to EC_POINTs_mul() */
+    int ret = 0;
+#ifndef FIPS_MODULE
+    BN_CTX *new_ctx = NULL;
+#endif
 
-    const EC_POINT *points[1];
-    const BIGNUM *scalars[1];
+    if (!ec_point_is_compat(r, group)
+        || (point != NULL && !ec_point_is_compat(point, group))) {
+        ECerr(EC_F_EC_POINT_MUL, EC_R_INCOMPATIBLE_OBJECTS);
+        return 0;
+    }
 
-    points[0] = point;
-    scalars[0] = p_scalar;
+    if (g_scalar == NULL && p_scalar == NULL)
+        return EC_POINT_set_to_infinity(group, r);
 
-    return EC_POINTs_mul(group, r, g_scalar,
-                         (point != NULL
-                          && p_scalar != NULL), points, scalars, ctx);
+#ifndef FIPS_MODULE
+    if (ctx == NULL)
+        ctx = new_ctx = BN_CTX_secure_new();
+#endif
+    if (ctx == NULL) {
+        ECerr(EC_F_EC_POINT_MUL, ERR_R_INTERNAL_ERROR);
+        return 0;
+    }
+
+    if (group->meth->mul != NULL)
+        ret = group->meth->mul(group, r, g_scalar, point != NULL
+                               && p_scalar != NULL, &point, &p_scalar, ctx);
+    else
+        /* use default */
+        ret = ec_wNAF_mul(group, r, g_scalar, point != NULL
+                          && p_scalar != NULL, &point, &p_scalar, ctx);
+
+#ifndef FIPS_MODULE
+    BN_CTX_free(new_ctx);
+#endif
+    return ret;
 }
 
 int EC_GROUP_precompute_mult(EC_GROUP *group, BN_CTX *ctx)
@@ -1161,7 +1187,7 @@ static int ec_precompute_mont_data(EC_GROUP *group)
     return ret;
 }
 
-#ifndef FIPS_MODE
+#ifndef FIPS_MODULE
 int EC_KEY_set_ex_data(EC_KEY *key, int idx, void *arg)
 {
     return CRYPTO_set_ex_data(&key->ex_data, idx, arg);
@@ -1185,14 +1211,14 @@ static int ec_field_inverse_mod_ord(const EC_GROUP *group, BIGNUM *r,
 {
     BIGNUM *e = NULL;
     int ret = 0;
-#ifndef FIPS_MODE
+#ifndef FIPS_MODULE
     BN_CTX *new_ctx = NULL;
 #endif
 
     if (group->mont_data == NULL)
         return 0;
 
-#ifndef FIPS_MODE
+#ifndef FIPS_MODULE
     if (ctx == NULL)
         ctx = new_ctx = BN_CTX_secure_new();
 #endif
@@ -1222,7 +1248,7 @@ static int ec_field_inverse_mod_ord(const EC_GROUP *group, BIGNUM *r,
 
  err:
     BN_CTX_end(ctx);
-#ifndef FIPS_MODE
+#ifndef FIPS_MODULE
     BN_CTX_free(new_ctx);
 #endif
     return ret;

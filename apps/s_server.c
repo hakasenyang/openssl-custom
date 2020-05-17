@@ -60,6 +60,12 @@ typedef unsigned int u_int;
 #endif
 #include "internal/sockets.h"
 
+DEFINE_STACK_OF(X509_EXTENSION)
+DEFINE_STACK_OF(X509_CRL)
+DEFINE_STACK_OF(X509)
+DEFINE_STACK_OF(SSL_CIPHER)
+DEFINE_STACK_OF_STRING()
+
 static int not_resumable_sess_cb(SSL *s, int is_forward_secure);
 static int sv_body(int s, int stype, int prot, unsigned char *context);
 static int www_body(int s, int stype, int prot, unsigned char *context);
@@ -755,7 +761,7 @@ typedef enum OPTION_choice {
     OPT_SRTP_PROFILES, OPT_KEYMATEXPORT, OPT_KEYMATEXPORTLEN,
     OPT_KEYLOG_FILE, OPT_MAX_EARLY, OPT_RECV_MAX_EARLY, OPT_EARLY_DATA,
     OPT_S_NUM_TICKETS, OPT_ANTI_REPLAY, OPT_NO_ANTI_REPLAY, OPT_SCTP_LABEL_BUG,
-    OPT_HTTP_SERVER_BINMODE,
+    OPT_HTTP_SERVER_BINMODE, OPT_NOCANAMES,
     OPT_R_ENUM,
     OPT_S_ENUM,
     OPT_V_ENUM,
@@ -807,7 +813,7 @@ const OPTIONS s_server_options[] = {
     {"cert2", OPT_CERT2, '<',
      "Certificate file to use for servername; default is" TEST_CERT2},
     {"certform", OPT_CERTFORM, 'F',
-     "Server certificate file format (PEM or DER) PEM default"},
+     "Server certificate file format (PEM/DER/P12); has no effect"},
     {"cert_chain", OPT_CERT_CHAIN, '<',
      "Server certificate chain file in PEM format"},
     {"build_chain", OPT_BUILD_CHAIN, '-', "Build server certificate chain"},
@@ -817,19 +823,18 @@ const OPTIONS s_server_options[] = {
      "Private key file to use; default is -cert file or else" TEST_CERT},
     {"key2", OPT_KEY2, '<',
      "-Private Key file to use for servername if not in -cert2"},
-    {"keyform", OPT_KEYFORM, 'f',
-     "Key format (PEM, DER or ENGINE) PEM default"},
+    {"keyform", OPT_KEYFORM, 'f', "Key format (ENGINE, other values ignored)"},
     {"pass", OPT_PASS, 's', "Private key file pass phrase source"},
     {"dcert", OPT_DCERT, '<',
      "Second server certificate file to use (usually for DSA)"},
     {"dcertform", OPT_DCERTFORM, 'F',
-     "Second server certificate file format (PEM or DER) PEM default"},
+     "Second server certificate file format (PEM/DER/P12); has no effect"},
     {"dcert_chain", OPT_DCERT_CHAIN, '<',
      "second server certificate chain file in PEM format"},
     {"dkey", OPT_DKEY, '<',
      "Second private key file to use (usually for DSA)"},
     {"dkeyform", OPT_DKEYFORM, 'F',
-     "Second key file format (PEM, DER or ENGINE) PEM default"},
+     "Second key file format (ENGINE, other values ignored)"},
     {"dpass", OPT_DPASS, 's', "Second private key file pass phrase source"},
     {"dhparam", OPT_DHPARAM, '<', "DH parameters file to use"},
     {"servername", OPT_SERVERNAME, 's',
@@ -946,6 +951,8 @@ const OPTIONS s_server_options[] = {
     {"anti_replay", OPT_ANTI_REPLAY, '-', "Switch on anti-replay protection (default)"},
     {"no_anti_replay", OPT_NO_ANTI_REPLAY, '-', "Switch off anti-replay protection"},
     {"http_server_binmode", OPT_HTTP_SERVER_BINMODE, '-', "opening files in binary mode when acting as http server (-WWW and -HTTP)"},
+    {"no_ca_names", OPT_NOCANAMES, '-',
+     "Disable TLS Extension CA Names"},
     {"stateless", OPT_STATELESS, '-', "Require TLSv1.3 cookies"},
 #ifndef OPENSSL_NO_SSL3
     {"ssl3", OPT_SSL3, '-', "Just talk SSLv3"},
@@ -1083,6 +1090,7 @@ int s_server_main(int argc, char *argv[])
     const char *keylog_file = NULL;
     int max_early_data = -1, recv_max_early_data = -1;
     char *psksessf = NULL;
+    int no_ca_names = 0;
 #ifndef OPENSSL_NO_SCTP
     int sctp_label_bug = 0;
 #endif
@@ -1237,14 +1245,14 @@ int s_server_main(int argc, char *argv[])
             s_serverinfo_file = opt_arg();
             break;
         case OPT_CERTFORM:
-            if (!opt_format(opt_arg(), OPT_FMT_PEMDER, &s_cert_format))
+            if (!opt_format(opt_arg(), OPT_FMT_ANY, &s_cert_format))
                 goto opthelp;
             break;
         case OPT_KEY:
             s_key_file = opt_arg();
             break;
         case OPT_KEYFORM:
-            if (!opt_format(opt_arg(), OPT_FMT_PDE, &s_key_format))
+            if (!opt_format(opt_arg(), OPT_FMT_ANY, &s_key_format))
                 goto opthelp;
             break;
         case OPT_PASS:
@@ -1259,14 +1267,14 @@ int s_server_main(int argc, char *argv[])
 #endif
             break;
         case OPT_DCERTFORM:
-            if (!opt_format(opt_arg(), OPT_FMT_PEMDER, &s_dcert_format))
+            if (!opt_format(opt_arg(), OPT_FMT_ANY, &s_dcert_format))
                 goto opthelp;
             break;
         case OPT_DCERT:
             s_dcert_file = opt_arg();
             break;
         case OPT_DKEYFORM:
-            if (!opt_format(opt_arg(), OPT_FMT_PDE, &s_dkey_format))
+            if (!opt_format(opt_arg(), OPT_FMT_ANY, &s_dkey_format))
                 goto opthelp;
             break;
         case OPT_DPASS:
@@ -1568,7 +1576,9 @@ int s_server_main(int argc, char *argv[])
             session_id_prefix = opt_arg();
             break;
         case OPT_ENGINE:
-            engine = setup_engine(opt_arg(), 1);
+#ifndef OPENSSL_NO_ENGINE
+            engine = setup_engine(opt_arg(), s_debug);
+#endif
             break;
         case OPT_R_CASES:
             if (!opt_rand(o))
@@ -1648,6 +1658,9 @@ int s_server_main(int argc, char *argv[])
             break;
         case OPT_HTTP_SERVER_BINMODE:
             http_server_binmode = 1;
+            break;
+        case OPT_NOCANAMES:
+            no_ca_names = 1;
             break;
         case OPT_SENDFILE:
 #ifndef OPENSSL_NO_KTLS
@@ -1878,7 +1891,6 @@ int s_server_main(int argc, char *argv[])
         }
         BIO_printf(bio_err, "id_prefix '%s' set.\n", session_id_prefix);
     }
-    SSL_CTX_set_quiet_shutdown(ctx, 1);
     if (exc != NULL)
         ssl_ctx_set_excert(ctx, exc);
 
@@ -1893,6 +1905,10 @@ int s_server_main(int argc, char *argv[])
 
     if (async) {
         SSL_CTX_set_mode(ctx, SSL_MODE_ASYNC);
+    }
+
+    if (no_ca_names) {
+        SSL_CTX_set_options(ctx, SSL_OP_DISABLE_TLSEXT_CA_NAMES);
     }
 
     if (max_send_fragment > 0
@@ -1976,7 +1992,6 @@ int s_server_main(int argc, char *argv[])
             }
             BIO_printf(bio_err, "id_prefix '%s' set.\n", session_id_prefix);
         }
-        SSL_CTX_set_quiet_shutdown(ctx2, 1);
         if (exc != NULL)
             ssl_ctx_set_excert(ctx2, exc);
 
@@ -2764,7 +2779,7 @@ static int sv_body(int s, int stype, int prot, unsigned char *context)
  err:
     if (con != NULL) {
         BIO_printf(bio_s_out, "shutting down SSL\n");
-        SSL_set_shutdown(con, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
+        do_ssl_shutdown(con);
         SSL_free(con);
     }
     BIO_printf(bio_s_out, "CONNECTION CLOSED\n");
@@ -3433,7 +3448,7 @@ static int www_body(int s, int stype, int prot, unsigned char *context)
     }
  end:
     /* make sure we re-use sessions */
-    SSL_set_shutdown(con, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
+    do_ssl_shutdown(con);
 
  err:
     OPENSSL_free(buf);
@@ -3587,7 +3602,7 @@ static int rev_body(int s, int stype, int prot, unsigned char *context)
     }
  end:
     /* make sure we re-use sessions */
-    SSL_set_shutdown(con, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
+    do_ssl_shutdown(con);
 
  err:
 
