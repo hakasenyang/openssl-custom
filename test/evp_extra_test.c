@@ -767,6 +767,40 @@ static int test_EVP_PKCS82PKEY(void)
 }
 #endif
 
+/* This uses kExampleRSAKeyDER and kExampleRSAKeyPKCS8 to verify encoding */
+static int test_privatekey_to_pkcs8(void)
+{
+    EVP_PKEY *pkey = NULL;
+    BIO *membio = NULL;
+    char *membuf = NULL;
+    size_t membuf_len = 0;
+    int ok = 0;
+
+    if (!TEST_ptr(membio = BIO_new(BIO_s_mem()))
+        || !TEST_ptr(pkey = load_example_rsa_key())
+        || !TEST_int_gt(i2d_PKCS8PrivateKey_bio(membio, pkey, NULL,
+                                                NULL, 0, NULL, NULL),
+                        0)
+        || !TEST_ptr((membuf_len = (size_t)BIO_get_mem_data(membio, &membuf),
+                      membuf))
+        || !TEST_mem_eq(membuf, membuf_len,
+                        kExampleRSAKeyPKCS8, sizeof(kExampleRSAKeyPKCS8))
+        /*
+         * We try to write PEM as well, just to see that it doesn't err, but
+         * assume that the result is correct.
+         */
+        || !TEST_int_gt(PEM_write_bio_PKCS8PrivateKey(membio, pkey, NULL,
+                                                      NULL, 0, NULL, NULL),
+                        0))
+        goto done;
+
+    ok = 1;
+ done:
+    EVP_PKEY_free(pkey);
+    BIO_free_all(membio);
+    return ok;
+}
+
 #if !defined(OPENSSL_NO_SM2) && !defined(FIPS_MODULE)
 
 static int test_EVP_SM2_verify(void)
@@ -1246,6 +1280,47 @@ static int test_HKDF(void)
     return ret;
 }
 
+static int test_emptyikm_HKDF(void)
+{
+    EVP_PKEY_CTX *pctx;
+    unsigned char out[20];
+    size_t outlen;
+    int ret = 0;
+    unsigned char salt[] = "9876543210";
+    unsigned char key[] = "";
+    unsigned char info[] = "stringinfo";
+    const unsigned char expected[] = {
+        0x68, 0x81, 0xa5, 0x3e, 0x5b, 0x9c, 0x7b, 0x6f, 0x2e, 0xec, 0xc8, 0x47,
+        0x7c, 0xfa, 0x47, 0x35, 0x66, 0x82, 0x15, 0x30
+    };
+    size_t expectedlen = sizeof(expected);
+
+    if (!TEST_ptr(pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_HKDF, NULL)))
+        goto done;
+
+    outlen = sizeof(out);
+    memset(out, 0, outlen);
+
+    if (!TEST_int_gt(EVP_PKEY_derive_init(pctx), 0)
+            || !TEST_int_gt(EVP_PKEY_CTX_set_hkdf_md(pctx, EVP_sha256()), 0)
+            || !TEST_int_gt(EVP_PKEY_CTX_set1_hkdf_salt(pctx, salt,
+                                                        sizeof(salt) - 1), 0)
+            || !TEST_int_gt(EVP_PKEY_CTX_set1_hkdf_key(pctx, key,
+                                                       sizeof(key) - 1), 0)
+            || !TEST_int_gt(EVP_PKEY_CTX_add1_hkdf_info(pctx, info,
+                                                        sizeof(info) - 1), 0)
+            || !TEST_int_gt(EVP_PKEY_derive(pctx, out, &outlen), 0)
+            || !TEST_mem_eq(out, outlen, expected, expectedlen))
+        goto done;
+
+    ret = 1;
+
+ done:
+    EVP_PKEY_CTX_free(pctx);
+
+    return ret;
+}
+
 #ifndef OPENSSL_NO_EC
 static int test_X509_PUBKEY_inplace(void)
 {
@@ -1625,6 +1700,47 @@ static int test_keygen_with_empty_template(int n)
     return ret;
 }
 
+/*
+ * Test that we fail if we attempt to use an algorithm that is not available
+ * in the current library context (unless we are using an algorithm that should
+ * be made available via legacy codepaths).
+ */
+static int test_pkey_ctx_fail_without_provider(int tst)
+{
+    OPENSSL_CTX *tmpctx = OPENSSL_CTX_new();
+    OSSL_PROVIDER *nullprov = NULL;
+    EVP_PKEY_CTX *pctx = NULL;
+    int ret = 0;
+
+    if (!TEST_ptr(tmpctx))
+        goto err;
+
+    nullprov = OSSL_PROVIDER_load(tmpctx, "null");
+    if (!TEST_ptr(nullprov))
+        goto err;
+
+    pctx = EVP_PKEY_CTX_new_from_name(tmpctx, tst == 0 ? "RSA" : "HMAC", "");
+
+    /* RSA is not available via any provider so we expect this to fail */
+    if (tst == 0 && !TEST_ptr_null(pctx))
+        goto err;
+
+    /*
+     * HMAC is always available because it is implemented via legacy codepaths
+     * and not in a provider at all. We expect this to pass.
+     */
+    if (tst == 1 && !TEST_ptr(pctx))
+        goto err;
+
+    ret = 1;
+
+ err:
+    EVP_PKEY_CTX_free(pctx);
+    OSSL_PROVIDER_unload(nullprov);
+    OPENSSL_CTX_free(tmpctx);
+    return ret;
+}
+
 int setup_tests(void)
 {
     testctx = OPENSSL_CTX_new();
@@ -1636,6 +1752,7 @@ int setup_tests(void)
     ADD_TEST(test_EVP_DigestVerifyInit);
     ADD_TEST(test_EVP_Enveloped);
     ADD_ALL_TESTS(test_d2i_AutoPrivateKey, OSSL_NELEM(keydata));
+    ADD_TEST(test_privatekey_to_pkcs8);
 #ifndef OPENSSL_NO_EC
     ADD_TEST(test_EVP_PKCS82PKEY);
 #endif
@@ -1657,6 +1774,7 @@ int setup_tests(void)
     ADD_TEST(test_CMAC_keygen);
 #endif
     ADD_TEST(test_HKDF);
+    ADD_TEST(test_emptyikm_HKDF);
 #ifndef OPENSSL_NO_EC
     ADD_TEST(test_X509_PUBKEY_inplace);
     ADD_ALL_TESTS(test_invalide_ec_char2_pub_range_decode,
@@ -1673,6 +1791,7 @@ int setup_tests(void)
     ADD_TEST(test_EVP_PKEY_set1_DH);
 #endif
     ADD_ALL_TESTS(test_keygen_with_empty_template, 2);
+    ADD_ALL_TESTS(test_pkey_ctx_fail_without_provider, 2);
 
     return 1;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2018 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2015-2020 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -93,6 +93,7 @@ WORK_STATE ossl_statem_server_post_process_message(SSL *s, WORK_STATE wst);
 __owur int tls_get_message_header(SSL *s, int *mt);
 __owur int tls_get_message_body(SSL *s, size_t *len);
 __owur int dtls_get_message(SSL *s, int *mt, size_t *len);
+__owur int quic_get_message(SSL *s, int *mt, size_t *len);
 
 /* Message construction and processing functions */
 __owur int tls_process_initial_server_flight(SSL *s);
@@ -153,6 +154,11 @@ __owur MSG_PROCESS_RETURN tls_process_next_proto(SSL *s, PACKET *pkt);
 __owur int tls_construct_new_session_ticket(SSL *s, WPACKET *pkt);
 MSG_PROCESS_RETURN tls_process_end_of_early_data(SSL *s, PACKET *pkt);
 
+#ifndef OPENSSL_NO_GOST
+/* These functions are used in GOST18 CKE, both for client and server */
+int gost18_cke_cipher_nid(const SSL *s);
+int gost_ukm(const SSL *s, unsigned char *dgst_buf);
+#endif
 
 /* Extension processing */
 
@@ -236,6 +242,10 @@ int tls_parse_ctos_psk(SSL *s, PACKET *pkt, unsigned int context, X509 *x,
                        size_t chainidx);
 int tls_parse_ctos_post_handshake_auth(SSL *, PACKET *pkt, unsigned int context,
                                        X509 *x, size_t chainidx);
+#ifndef OPENSSL_NO_QUIC
+int tls_parse_ctos_quic_transport_params(SSL *s, PACKET *pkt, unsigned int context,
+                                         X509 *x, size_t chainidx);
+#endif
 
 EXT_RETURN tls_construct_stoc_renegotiate(SSL *s, WPACKET *pkt,
                                           unsigned int context, X509 *x,
@@ -298,6 +308,11 @@ EXT_RETURN tls_construct_stoc_cryptopro_bug(SSL *s, WPACKET *pkt,
                                             size_t chainidx);
 EXT_RETURN tls_construct_stoc_psk(SSL *s, WPACKET *pkt, unsigned int context,
                                   X509 *x, size_t chainidx);
+#ifndef OPENSSL_NO_QUIC
+EXT_RETURN tls_construct_stoc_quic_transport_params(SSL *s, WPACKET *pkt,
+                                                    unsigned int context, X509 *x,
+                                                    size_t chainidx);
+#endif
 
 /* Client Extension processing */
 EXT_RETURN tls_construct_ctos_renegotiate(SSL *s, WPACKET *pkt, unsigned int context,
@@ -369,6 +384,11 @@ EXT_RETURN tls_construct_ctos_psk(SSL *s, WPACKET *pkt, unsigned int context,
                                   X509 *x, size_t chainidx);
 EXT_RETURN tls_construct_ctos_post_handshake_auth(SSL *s, WPACKET *pkt, unsigned int context,
                                                   X509 *x, size_t chainidx);
+#ifndef OPENSSL_NO_QUIC
+EXT_RETURN tls_construct_ctos_quic_transport_params(SSL *s, WPACKET *pkt,
+                                                    unsigned int context, X509 *x,
+                                                    size_t chainidx);
+#endif
 
 int tls_parse_stoc_renegotiate(SSL *s, PACKET *pkt, unsigned int context,
                                X509 *x, size_t chainidx);
@@ -414,6 +434,10 @@ int tls_parse_stoc_cookie(SSL *s, PACKET *pkt, unsigned int context, X509 *x,
                        size_t chainidx);
 int tls_parse_stoc_psk(SSL *s, PACKET *pkt, unsigned int context, X509 *x,
                        size_t chainidx);
+#ifndef OPENSSL_NO_QUIC
+int tls_parse_stoc_quic_transport_params(SSL *s, PACKET *pkt, unsigned int context,
+                                         X509 *x, size_t chainidx);
+#endif
 
 int tls_handle_alpn(SSL *s);
 

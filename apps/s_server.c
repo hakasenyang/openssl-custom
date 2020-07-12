@@ -534,8 +534,8 @@ static int get_ocsp_resp_from_responder(SSL *s, tlsextstatusctx *srctx,
     x = SSL_get_certificate(s);
     aia = X509_get1_ocsp(x);
     if (aia != NULL) {
-        if (!OSSL_HTTP_parse_url(sk_OPENSSL_STRING_value(aia, 0),
-                                 &host, &port, &path, &use_ssl)) {
+        if (!OCSP_parse_url(sk_OPENSSL_STRING_value(aia, 0),
+                            &host, &port, &path, &use_ssl)) {
             BIO_puts(bio_err, "cert_status: can't parse AIA URL\n");
             goto err;
         }
@@ -761,7 +761,7 @@ typedef enum OPTION_choice {
     OPT_SRTP_PROFILES, OPT_KEYMATEXPORT, OPT_KEYMATEXPORTLEN,
     OPT_KEYLOG_FILE, OPT_MAX_EARLY, OPT_RECV_MAX_EARLY, OPT_EARLY_DATA,
     OPT_S_NUM_TICKETS, OPT_ANTI_REPLAY, OPT_NO_ANTI_REPLAY, OPT_SCTP_LABEL_BUG,
-    OPT_HTTP_SERVER_BINMODE, OPT_NOCANAMES,
+    OPT_HTTP_SERVER_BINMODE, OPT_NOCANAMES, OPT_IGNORE_UNEXPECTED_EOF,
     OPT_R_ENUM,
     OPT_S_ENUM,
     OPT_V_ENUM,
@@ -850,6 +850,8 @@ const OPTIONS s_server_options[] = {
      "Disable caching and tickets if ephemeral (EC)DH is used"},
     {"www", OPT_WWW, '-', "Respond to a 'GET /' with a status page"},
     {"WWW", OPT_UPPER_WWW, '-', "Respond to a 'GET with the file ./path"},
+    {"ignore_unexpected_eof", OPT_IGNORE_UNEXPECTED_EOF, '-',
+     "Do not treat lack of close_notify from a peer as an error"},
     {"tlsextdebug", OPT_TLSEXTDEBUG, '-',
      "Hex dump of all TLS extensions received"},
     {"HTTP", OPT_HTTP, '-', "Like -WWW but ./path includes HTTP headers"},
@@ -1094,6 +1096,7 @@ int s_server_main(int argc, char *argv[])
 #ifndef OPENSSL_NO_SCTP
     int sctp_label_bug = 0;
 #endif
+    int ignore_unexpected_eof = 0;
 
     /* Init of few remaining global variables */
     local_argc = argc;
@@ -1403,9 +1406,10 @@ int s_server_main(int argc, char *argv[])
         case OPT_STATUS_URL:
 #ifndef OPENSSL_NO_OCSP
             s_tlsextstatus = 1;
-            if (!OSSL_HTTP_parse_url(opt_arg(),
-                                     &tlscstatp.host, &tlscstatp.port,
-                                     &tlscstatp.path, &tlscstatp.use_ssl)) {
+            if (!OCSP_parse_url(opt_arg(),
+                                &tlscstatp.host,
+                                &tlscstatp.port,
+                                &tlscstatp.path, &tlscstatp.use_ssl)) {
                 BIO_printf(bio_err, "Error parsing URL\n");
                 goto end;
             }
@@ -1667,6 +1671,9 @@ int s_server_main(int argc, char *argv[])
             use_sendfile = 1;
 #endif
             break;
+        case OPT_IGNORE_UNEXPECTED_EOF:
+            ignore_unexpected_eof = 1;
+            break;
         }
     }
     argc = opt_num_rest();
@@ -1867,7 +1874,6 @@ int s_server_main(int argc, char *argv[])
             goto end;
         }
     }
-
 #ifndef OPENSSL_NO_SCTP
     if (protocol == IPPROTO_SCTP && sctp_label_bug == 1)
         SSL_CTX_set_mode(ctx, SSL_MODE_DTLS_SCTP_LABEL_LENGTH_BUG);
@@ -1910,6 +1916,9 @@ int s_server_main(int argc, char *argv[])
     if (no_ca_names) {
         SSL_CTX_set_options(ctx, SSL_OP_DISABLE_TLSEXT_CA_NAMES);
     }
+
+    if (ignore_unexpected_eof)
+        SSL_CTX_set_options(ctx, SSL_OP_IGNORE_UNEXPECTED_EOF);
 
     if (max_send_fragment > 0
         && !SSL_CTX_set_max_send_fragment(ctx, max_send_fragment)) {
@@ -3617,7 +3626,7 @@ static int generate_session_id(SSL *ssl, unsigned char *id,
 {
     unsigned int count = 0;
     unsigned int session_id_prefix_len = strlen(session_id_prefix);
-
+  
     do {
         if (RAND_bytes(id, *id_len) <= 0)
             return 0;

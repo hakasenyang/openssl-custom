@@ -10,21 +10,53 @@
 #include <string.h>
 
 #include "internal/nelem.h"
-#include "internal/cryptlib.h" /* for ossl_sleep() */
 #include "ssltestlib.h"
 #include "testutil.h"
 #include "e_os.h"
 
 #ifdef OPENSSL_SYS_UNIX
 # include <unistd.h>
-# ifndef OPENSSL_NO_KTLS
-#  include <netinet/in.h>
-#  include <netinet/in.h>
-#  include <arpa/inet.h>
-#  include <sys/socket.h>
-#  include <unistd.h>
-#  include <fcntl.h>
+#ifndef OPENSSL_NO_KTLS
+# include <netinet/in.h>
+# include <netinet/in.h>
+# include <arpa/inet.h>
+# include <sys/socket.h>
+# include <unistd.h>
+# include <fcntl.h>
+#endif
+
+static ossl_inline void ossl_sleep(unsigned int millis)
+{
+# ifdef OPENSSL_SYS_VXWORKS
+    struct timespec ts;
+    ts.tv_sec = (long int) (millis / 1000);
+    ts.tv_nsec = (long int) (millis % 1000) * 1000000ul;
+    nanosleep(&ts, NULL);
+# else
+    usleep(millis * 1000);
 # endif
+}
+#elif defined(_WIN32)
+# include <windows.h>
+
+static ossl_inline void ossl_sleep(unsigned int millis)
+{
+    Sleep(millis);
+}
+#else
+/* Fallback to a busy wait */
+static ossl_inline void ossl_sleep(unsigned int millis)
+{
+    struct timeval start, now;
+    unsigned int elapsedms;
+
+    gettimeofday(&start, NULL);
+    do {
+        gettimeofday(&now, NULL);
+        elapsedms = (((now.tv_sec - start.tv_sec) * 1000000)
+                     + now.tv_usec - start.tv_usec) / 1000;
+    } while (elapsedms < millis);
+}
 #endif
 
 static int tls_dump_new(BIO *bi);
@@ -741,8 +773,10 @@ const SSL_METHOD *cm,
     return 1;
 
  err:
-    SSL_CTX_free(serverctx);
-    SSL_CTX_free(clientctx);
+    if (*sctx == NULL)
+        SSL_CTX_free(serverctx);
+    if (cctx != NULL && *cctx == NULL)
+        SSL_CTX_free(clientctx);
     return 0;
 }
 
@@ -1017,6 +1051,11 @@ int create_ssl_connection(SSL *serverssl, SSL *clientssl, int want)
     if (!create_bare_ssl_connection(serverssl, clientssl, want, 1))
         return 0;
 
+#ifndef OPENSSL_NO_QUIC
+    /* QUIC does not support SSL_read_ex */
+    if (SSL_is_quic(clientssl))
+        return 1;
+#endif
     /*
      * We attempt to read some data on the client side which we expect to fail.
      * This will ensure we have received the NewSessionTicket in TLSv1.3 where

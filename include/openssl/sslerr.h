@@ -97,6 +97,9 @@ int ERR_load_SSL_strings(void);
 #  define SSL_F_PITEM_NEW                                  0
 #  define SSL_F_PQUEUE_NEW                                 0
 #  define SSL_F_PROCESS_KEY_SHARE_EXT                      0
+#  define SSL_F_QUIC_CHANGE_CIPHER_STATE                   0
+#  define SSL_F_QUIC_GET_MESSAGE                           0
+#  define SSL_F_QUIC_SET_ENCRYPTION_SECRETS                0
 #  define SSL_F_READ_STATE_MACHINE                         0
 #  define SSL_F_SET_CLIENT_CIPHERSUITE                     0
 #  define SSL_F_SRP_GENERATE_CLIENT_MASTER_SECRET          0
@@ -107,7 +110,9 @@ int ERR_load_SSL_strings(void);
 #  define SSL_F_SSL3_CTRL                                  0
 #  define SSL_F_SSL3_CTX_CTRL                              0
 #  define SSL_F_SSL3_DIGEST_CACHED_RECORDS                 0
+#  define SSL_F_SSL3_DISPATCH_ALERT                        0
 #  define SSL_F_SSL3_DO_CHANGE_CIPHER_SPEC                 0
+#  define SSL_F_SSL3_DO_WRITE                              0
 #  define SSL_F_SSL3_ENC                                   0
 #  define SSL_F_SSL3_FINAL_FINISH_MAC                      0
 #  define SSL_F_SSL3_FINISH_MAC                            0
@@ -212,6 +217,8 @@ int ERR_load_SSL_strings(void);
 #  define SSL_F_SSL_PEEK                                   0
 #  define SSL_F_SSL_PEEK_EX                                0
 #  define SSL_F_SSL_PEEK_INTERNAL                          0
+#  define SSL_F_SSL_PROCESS_QUIC_POST_HANDSHAKE            0
+#  define SSL_F_SSL_PROVIDE_QUIC_DATA                      0
 #  define SSL_F_SSL_READ                                   0
 #  define SSL_F_SSL_READ_EARLY_DATA                        0
 #  define SSL_F_SSL_READ_EX                                0
@@ -262,6 +269,7 @@ int ERR_load_SSL_strings(void);
 #  define SSL_F_SSL_WRITE_EARLY_FINISH                     0
 #  define SSL_F_SSL_WRITE_EX                               0
 #  define SSL_F_SSL_WRITE_INTERNAL                         0
+#  define SSL_F_STATEM_FLUSH                               0
 #  define SSL_F_STATE_MACHINE                              0
 #  define SSL_F_TLS12_CHECK_PEER_SIGALG                    0
 #  define SSL_F_TLS12_COPY_SIGALGS                         0
@@ -298,6 +306,7 @@ int ERR_load_SSL_strings(void);
 #  define SSL_F_TLS_CONSTRUCT_CKE_DHE                      0
 #  define SSL_F_TLS_CONSTRUCT_CKE_ECDHE                    0
 #  define SSL_F_TLS_CONSTRUCT_CKE_GOST                     0
+#  define SSL_F_TLS_CONSTRUCT_CKE_GOST18                   0
 #  define SSL_F_TLS_CONSTRUCT_CKE_PSK_PREAMBLE             0
 #  define SSL_F_TLS_CONSTRUCT_CKE_RSA                      0
 #  define SSL_F_TLS_CONSTRUCT_CKE_SRP                      0
@@ -321,6 +330,7 @@ int ERR_load_SSL_strings(void);
 #  define SSL_F_TLS_CONSTRUCT_CTOS_POST_HANDSHAKE_AUTH     0
 #  define SSL_F_TLS_CONSTRUCT_CTOS_PSK                     0
 #  define SSL_F_TLS_CONSTRUCT_CTOS_PSK_KEX_MODES           0
+#  define SSL_F_TLS_CONSTRUCT_CTOS_QUIC_TRANSPORT_PARAMS   0
 #  define SSL_F_TLS_CONSTRUCT_CTOS_RENEGOTIATE             0
 #  define SSL_F_TLS_CONSTRUCT_CTOS_SCT                     0
 #  define SSL_F_TLS_CONSTRUCT_CTOS_SERVER_NAME             0
@@ -360,6 +370,7 @@ int ERR_load_SSL_strings(void);
 #  define SSL_F_TLS_CONSTRUCT_STOC_MAXFRAGMENTLEN          0
 #  define SSL_F_TLS_CONSTRUCT_STOC_NEXT_PROTO_NEG          0
 #  define SSL_F_TLS_CONSTRUCT_STOC_PSK                     0
+#  define SSL_F_TLS_CONSTRUCT_STOC_QUIC_TRANSPORT_PARAMS   0
 #  define SSL_F_TLS_CONSTRUCT_STOC_RENEGOTIATE             0
 #  define SSL_F_TLS_CONSTRUCT_STOC_SERVER_NAME             0
 #  define SSL_F_TLS_CONSTRUCT_STOC_SESSION_TICKET          0
@@ -385,6 +396,7 @@ int ERR_load_SSL_strings(void);
 #  define SSL_F_TLS_PARSE_CTOS_POST_HANDSHAKE_AUTH         0
 #  define SSL_F_TLS_PARSE_CTOS_PSK                         0
 #  define SSL_F_TLS_PARSE_CTOS_PSK_KEX_MODES               0
+#  define SSL_F_TLS_PARSE_CTOS_QUIC_TRANSPORT_PARAMS       0
 #  define SSL_F_TLS_PARSE_CTOS_RENEGOTIATE                 0
 #  define SSL_F_TLS_PARSE_CTOS_SERVER_NAME                 0
 #  define SSL_F_TLS_PARSE_CTOS_SESSION_TICKET              0
@@ -403,6 +415,7 @@ int ERR_load_SSL_strings(void);
 #  define SSL_F_TLS_PARSE_STOC_MAXFRAGMENTLEN              0
 #  define SSL_F_TLS_PARSE_STOC_NPN                         0
 #  define SSL_F_TLS_PARSE_STOC_PSK                         0
+#  define SSL_F_TLS_PARSE_STOC_QUIC_TRANSPORT_PARAMS       0
 #  define SSL_F_TLS_PARSE_STOC_RENEGOTIATE                 0
 #  define SSL_F_TLS_PARSE_STOC_SCT                         0
 #  define SSL_F_TLS_PARSE_STOC_SERVER_NAME                 0
@@ -422,6 +435,7 @@ int ERR_load_SSL_strings(void);
 #  define SSL_F_TLS_PROCESS_CKE_DHE                        0
 #  define SSL_F_TLS_PROCESS_CKE_ECDHE                      0
 #  define SSL_F_TLS_PROCESS_CKE_GOST                       0
+#  define SSL_F_TLS_PROCESS_CKE_GOST18                     0
 #  define SSL_F_TLS_PROCESS_CKE_PSK_PREAMBLE               0
 #  define SSL_F_TLS_PROCESS_CKE_RSA                        0
 #  define SSL_F_TLS_PROCESS_CKE_SRP                        0
@@ -569,6 +583,7 @@ int ERR_load_SSL_strings(void);
 # define SSL_R_INCONSISTENT_EARLY_DATA_SNI                231
 # define SSL_R_INCONSISTENT_EXTMS                         104
 # define SSL_R_INSUFFICIENT_SECURITY                      241
+# define SSL_R_INTERNAL_ERROR                             296
 # define SSL_R_INVALID_ALERT                              205
 # define SSL_R_INVALID_CCS_MESSAGE                        260
 # define SSL_R_INVALID_CERTIFICATE_OR_ALG                 238
@@ -606,8 +621,8 @@ int ERR_load_SSL_strings(void);
 # define SSL_R_MISSING_TMP_DH_KEY                         171
 # define SSL_R_MISSING_TMP_ECDH_KEY                       311
 # define SSL_R_MIXED_HANDSHAKE_AND_NON_HANDSHAKE_DATA     293
-# define SSL_R_MIXED_SPECIAL_OPERATOR_WITH_GROUPS         296
-# define SSL_R_NESTED_GROUP                               297
+# define SSL_R_MIXED_SPECIAL_OPERATOR_WITH_GROUPS         297
+# define SSL_R_NESTED_GROUP                               299
 # define SSL_R_NOT_ON_RECORD_BOUNDARY                     182
 # define SSL_R_NOT_REPLACING_CERTIFICATE                  289
 # define SSL_R_NOT_SERVER                                 284
@@ -739,9 +754,9 @@ int ERR_load_SSL_strings(void);
 # define SSL_R_UNEXPECTED_CCS_MESSAGE                     262
 # define SSL_R_UNEXPECTED_END_OF_EARLY_DATA               178
 # define SSL_R_UNEXPECTED_EOF_WHILE_READING               294
-# define SSL_R_UNEXPECTED_GROUP_CLOSE                     299
+# define SSL_R_UNEXPECTED_GROUP_CLOSE                     305
 # define SSL_R_UNEXPECTED_MESSAGE                         244
-# define SSL_R_UNEXPECTED_OPERATOR_IN_GROUP               305
+# define SSL_R_UNEXPECTED_OPERATOR_IN_GROUP               310
 # define SSL_R_UNEXPECTED_RECORD                          245
 # define SSL_R_UNINITIALIZED                              276
 # define SSL_R_UNKNOWN_ALERT_TYPE                         246
@@ -769,6 +784,7 @@ int ERR_load_SSL_strings(void);
 # define SSL_R_WRONG_CERTIFICATE_TYPE                     383
 # define SSL_R_WRONG_CIPHER_RETURNED                      261
 # define SSL_R_WRONG_CURVE                                378
+# define SSL_R_WRONG_ENCRYPTION_LEVEL_RECEIVED            313
 # define SSL_R_WRONG_SIGNATURE_LENGTH                     264
 # define SSL_R_WRONG_SIGNATURE_SIZE                       265
 # define SSL_R_WRONG_SIGNATURE_TYPE                       370

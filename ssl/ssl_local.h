@@ -180,6 +180,8 @@
 # define SSL_kRSAPSK             0x00000040U
 # define SSL_kECDHEPSK           0x00000080U
 # define SSL_kDHEPSK             0x00000100U
+/* GOST KDF key exchange, draft-smyshlyaev-tls12-gost-suites */
+# define SSL_kGOST18             0x00000200U
 
 /* all PSK */
 
@@ -234,7 +236,9 @@
 # define SSL_CHACHA20POLY1305    0x00080000U
 # define SSL_ARIA128GCM          0x00100000U
 # define SSL_ARIA256GCM          0x00200000U
-# define SSL_CHACHA20POLY1305_D  0x00400000U
+# define SSL_MAGMA               0x00400000U
+# define SSL_KUZNYECHIK          0x00800000U
+# define SSL_CHACHA20POLY1305_D  0x01000000U
 
 # define SSL_AESGCM              (SSL_AES128GCM | SSL_AES256GCM)
 # define SSL_AESCCM              (SSL_AES128CCM | SSL_AES256CCM | SSL_AES128CCM8 | SSL_AES256CCM8)
@@ -243,6 +247,9 @@
 # define SSL_CHACHA20            (SSL_CHACHA20POLY1305 | SSL_CHACHA20POLY1305_D)
 # define SSL_ARIAGCM             (SSL_ARIA128GCM | SSL_ARIA256GCM)
 # define SSL_ARIA                (SSL_ARIAGCM)
+# define SSL_CBC                 (SSL_DES | SSL_3DES | SSL_RC2 | SSL_IDEA \
+                                  | SSL_AES128 | SSL_AES256 | SSL_CAMELLIA128 \
+                                  | SSL_CAMELLIA256 | SSL_SEED)
 
 /* Bits for algorithm_mac (symmetric authentication) */
 
@@ -257,6 +264,8 @@
 # define SSL_GOST12_256          0x00000080U
 # define SSL_GOST89MAC12         0x00000100U
 # define SSL_GOST12_512          0x00000200U
+# define SSL_MAGMAOMAC           0x00000400U
+# define SSL_KUZNYECHIKOMAC      0x00000800U
 
 /*
  * When adding new digest in the ssl_ciph.c and increment SSL_MD_NUM_IDX make
@@ -275,7 +284,9 @@
 # define SSL_MD_MD5_SHA1_IDX 9
 # define SSL_MD_SHA224_IDX 10
 # define SSL_MD_SHA512_IDX 11
-# define SSL_MAX_DIGEST 12
+# define SSL_MD_MAGMAOMAC_IDX 12
+# define SSL_MD_KUZNYECHIKOMAC_IDX 13
+# define SSL_MAX_DIGEST 14
 
 /* Bits for algorithm2 (handshake digests and other extra flags) */
 
@@ -304,6 +315,11 @@
  * goes into algorithm2)
  */
 # define TLS1_STREAM_MAC 0x10000
+/*
+ * TLSTREE cipher/mac key derivation from draft-smyshlyaev-tls12-gost-suites
+ * (currently this also  goes into algorithm2)
+ */
+# define TLS1_TLSTREE 0x20000
 
 # define SSL_STRONG_MASK         0x0000001FU
 # define SSL_DEFAULT_MASK        0X00000020U
@@ -319,6 +335,13 @@
 
 /* Flag used on OpenSSL ciphersuite ids to indicate they are for SSLv3+ */
 # define SSL3_CK_CIPHERSUITE_FLAG                0x03000000
+
+/* Check if an SSL structure is using QUIC (which uses TLSv1.3) */
+# ifndef OPENSSL_NO_QUIC
+#  define SSL_IS_QUIC(s)  (s->quic_method != NULL)
+# else
+#  define SSL_IS_QUIC(s) 0
+# endif
 
 /* Check if an SSL structure is using DTLS */
 # define SSL_IS_DTLS(s)  (s->method->ssl3_enc->enc_flags & SSL_ENC_FLAG_DTLS)
@@ -720,6 +743,7 @@ typedef enum tlsext_index_en {
     TLSEXT_IDX_cryptopro_bug,
     TLSEXT_IDX_early_data,
     TLSEXT_IDX_certificate_authorities,
+    TLSEXT_IDX_quic_transport_params,
     TLSEXT_IDX_padding,
     TLSEXT_IDX_psk,
     /* Dummy index - must always be the last entry */
@@ -1147,10 +1171,25 @@ struct ssl_ctx_st {
     SSL_async_callback_fn async_cb;
     void *async_cb_arg;
 
+#ifndef OPENSSL_NO_QUIC
+    const SSL_QUIC_METHOD *quic_method;
+#endif
+
     char *propq;
 };
 
 typedef struct cert_pkey_st CERT_PKEY;
+
+#ifndef OPENSSL_NO_QUIC
+struct quic_data_st {
+    struct quic_data_st *next;
+    OSSL_ENCRYPTION_LEVEL level;
+    size_t offset;
+    size_t length;
+};
+typedef struct quic_data_st QUIC_DATA;
+int quic_set_encryption_secrets(SSL *ssl, OSSL_ENCRYPTION_LEVEL level);
+#endif
 
 struct ssl_st {
     /*
@@ -1411,6 +1450,11 @@ struct ssl_st {
     unsigned char handshake_traffic_hash[EVP_MAX_MD_SIZE];
     unsigned char client_app_traffic_secret[EVP_MAX_MD_SIZE];
     unsigned char server_app_traffic_secret[EVP_MAX_MD_SIZE];
+# ifndef OPENSSL_NO_QUIC
+    unsigned char client_hand_traffic_secret[EVP_MAX_MD_SIZE];
+    unsigned char server_hand_traffic_secret[EVP_MAX_MD_SIZE];
+    unsigned char client_early_traffic_secret[EVP_MAX_MD_SIZE];
+# endif
     unsigned char exporter_master_secret[EVP_MAX_MD_SIZE];
     unsigned char early_exporter_master_secret[EVP_MAX_MD_SIZE];
     EVP_CIPHER_CTX *enc_read_ctx; /* cryptographic state */
@@ -1625,8 +1669,22 @@ struct ssl_st {
          * selected.
          */
         int tick_identity;
+
+#ifndef OPENSSL_NO_QUIC
+        uint8_t *quic_transport_params;
+        size_t quic_transport_params_len;
+        uint8_t *peer_quic_transport_params;
+        size_t peer_quic_transport_params_len;
+#endif
     } ext;
 
+#ifndef OPENSSL_NO_QUIC
+    OSSL_ENCRYPTION_LEVEL quic_read_level;
+    OSSL_ENCRYPTION_LEVEL quic_write_level;
+    QUIC_DATA *quic_input_data_head;
+    QUIC_DATA *quic_input_data_tail;
+    const SSL_QUIC_METHOD *quic_method;
+#endif
     /*
      * Parsed form of the ClientHello, kept around across client_hello_cb
      * calls.

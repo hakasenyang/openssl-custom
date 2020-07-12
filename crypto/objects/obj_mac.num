@@ -1215,4 +1215,5 @@ modp_3072		1214
 modp_4096		1215
 modp_6144		1216
 modp_8192		1217
-chacha20_poly1305_draft		1218
+kx_gost18		1218
+chacha20_poly1305_draft		1219

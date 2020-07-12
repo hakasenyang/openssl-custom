@@ -852,6 +852,10 @@ SSL *SSL_new(SSL_CTX *ctx)
 
     s->job = NULL;
 
+#ifndef OPENSSL_NO_QUIC
+    s->quic_method = ctx->quic_method;
+#endif
+
 #ifndef OPENSSL_NO_CT
     if (!SSL_set_ct_validation_callback(s, ctx->ct_validation_callback,
                                         ctx->ct_validation_callback_arg))
@@ -1286,6 +1290,18 @@ void SSL_free(SSL *s)
     OPENSSL_free(s->clienthello);
     OPENSSL_free(s->pha_context);
     EVP_MD_CTX_free(s->pha_dgst);
+
+#ifndef OPENSSL_NO_QUIC
+    OPENSSL_free(s->ext.quic_transport_params);
+    OPENSSL_free(s->ext.peer_quic_transport_params);
+    while (s->quic_input_data_head != NULL) {
+        QUIC_DATA *qd;
+
+        qd = s->quic_input_data_head;
+        s->quic_input_data_head = qd->next;
+        OPENSSL_free(qd);
+    }
+#endif
 
     sk_X509_NAME_pop_free(s->ca_names, X509_NAME_free);
     sk_X509_NAME_pop_free(s->client_ca_names, X509_NAME_free);
@@ -1863,6 +1879,12 @@ static int ssl_io_intern(void *vargs)
 
 int ssl_read_internal(SSL *s, void *buf, size_t num, size_t *readbytes)
 {
+#ifndef OPENSSL_NO_QUIC
+    if (SSL_IS_QUIC(s)) {
+        SSLerr(SSL_F_SSL_READ_INTERNAL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
+        return -1;
+    }
+#endif
     if (s->handshake_func == NULL) {
         SSLerr(SSL_F_SSL_READ_INTERNAL, SSL_R_UNINITIALIZED);
         return -1;
@@ -1995,6 +2017,12 @@ int SSL_get_early_data_status(const SSL *s)
 
 static int ssl_peek_internal(SSL *s, void *buf, size_t num, size_t *readbytes)
 {
+#ifndef OPENSSL_NO_QUIC
+    if (SSL_IS_QUIC(s)) {
+        SSLerr(SSL_F_SSL_PEEK_INTERNAL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
+        return -1;
+    }
+#endif
     if (s->handshake_func == NULL) {
         SSLerr(SSL_F_SSL_PEEK_INTERNAL, SSL_R_UNINITIALIZED);
         return -1;
@@ -2055,6 +2083,12 @@ int SSL_peek_ex(SSL *s, void *buf, size_t num, size_t *readbytes)
 
 int ssl_write_internal(SSL *s, const void *buf, size_t num, size_t *written)
 {
+#ifndef OPENSSL_NO_QUIC
+    if (SSL_IS_QUIC(s)) {
+        SSLerr(SSL_F_SSL_WRITE_INTERNAL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
+        return -1;
+    }
+#endif
     if (s->handshake_func == NULL) {
         SSLerr(SSL_F_SSL_WRITE_INTERNAL, SSL_R_UNINITIALIZED);
         return -1;
@@ -3544,11 +3578,11 @@ void ssl_set_masks(SSL *s)
 
 #ifndef OPENSSL_NO_GOST
     if (ssl_has_cert(s, SSL_PKEY_GOST12_512)) {
-        mask_k |= SSL_kGOST;
+        mask_k |= SSL_kGOST | SSL_kGOST18;
         mask_a |= SSL_aGOST12;
     }
     if (ssl_has_cert(s, SSL_PKEY_GOST12_256)) {
-        mask_k |= SSL_kGOST;
+        mask_k |= SSL_kGOST | SSL_kGOST18;
         mask_a |= SSL_aGOST12;
     }
     if (ssl_has_cert(s, SSL_PKEY_GOST01)) {
@@ -3782,6 +3816,11 @@ int SSL_get_error(const SSL *s, int i)
     }
 
     if (SSL_want_read(s)) {
+#ifndef OPENSSL_NO_QUIC
+        if (SSL_IS_QUIC(s)) {
+            return SSL_ERROR_WANT_READ;
+        }
+#endif
         bio = SSL_get_rbio(s);
         if (BIO_should_read(bio))
             return SSL_ERROR_WANT_READ;
@@ -4162,7 +4201,7 @@ EVP_PKEY *SSL_CTX_get0_privatekey(const SSL_CTX *ctx)
 
 const SSL_CIPHER *SSL_get_current_cipher(const SSL *s)
 {
-    if ((s->session != NULL) && (s->session->cipher != NULL))
+    if (s->session != NULL)
         return s->session->cipher;
     return NULL;
 }
@@ -4390,7 +4429,6 @@ int SSL_CTX_load_verify_store(SSL_CTX *ctx, const char *CAstore)
     return X509_STORE_load_store(ctx->cert_store, CAstore);
 }
 
-#ifndef OPENSSL_NO_DEPRECATED_3_0
 int SSL_CTX_load_verify_locations(SSL_CTX *ctx, const char *CAfile,
                                   const char *CApath)
 {
@@ -4402,7 +4440,6 @@ int SSL_CTX_load_verify_locations(SSL_CTX *ctx, const char *CAfile,
         return 0;
     return 1;
 }
-#endif
 
 void SSL_set_info_callback(SSL *ssl,
                            void (*cb) (const SSL *ssl, int type, int val))
@@ -4692,11 +4729,18 @@ int SSL_CTX_set_block_padding(SSL_CTX *ctx, size_t block_size)
     return 1;
 }
 
-void SSL_set_record_padding_callback(SSL *ssl,
+int SSL_set_record_padding_callback(SSL *ssl,
                                      size_t (*cb) (SSL *ssl, int type,
                                                    size_t len, void *arg))
 {
-    ssl->record_padding_cb = cb;
+    BIO *b;
+
+    b = SSL_get_wbio(ssl);
+    if (b == NULL || !BIO_get_ktls_send(b)) {
+        ssl->record_padding_cb = cb;
+        return 1;
+    }
+    return 0;
 }
 
 void SSL_set_record_padding_callback_arg(SSL *ssl, void *arg)

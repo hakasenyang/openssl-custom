@@ -438,10 +438,6 @@ X509 *load_cert_pass(const char *uri, int maybe_stdin,
 
     if (desc == NULL)
         desc = "certificate";
-    if (uri == NULL) {
-        unbuffer(stdin);
-        uri = "";
-    }
     (void)load_key_cert_crl(uri, maybe_stdin, pass, desc, NULL, &cert, NULL);
     if (cert == NULL) {
         BIO_printf(bio_err, "Unable to load %s\n", desc);
@@ -453,7 +449,7 @@ X509 *load_cert_pass(const char *uri, int maybe_stdin,
 /* the format parameter is meanwhile not needed anymore and thus ignored */
 X509 *load_cert(const char *uri, int format, const char *desc)
 {
-    return load_cert_pass(uri, 0, NULL, desc);
+    return load_cert_pass(uri, 1, NULL, desc);
 }
 
 /* the format parameter is meanwhile not needed anymore and thus ignored */
@@ -671,16 +667,24 @@ static int load_certs_crls(const char *file, int format,
     return rv;
 }
 
+void app_bail_out(char *fmt, ...)
+{
+    va_list args;
+
+    va_start(args, fmt);
+    BIO_vprintf(bio_err, fmt, args);
+    va_end(args);
+    ERR_print_errors(bio_err);
+    exit(1);
+}
+
 void* app_malloc(int sz, const char *what)
 {
     void *vp = OPENSSL_malloc(sz);
 
-    if (vp == NULL) {
-        BIO_printf(bio_err, "%s: Could not allocate %d bytes for %s\n",
-                opt_getprog(), sz, what);
-        ERR_print_errors(bio_err);
-        exit(1);
-    }
+    if (vp == NULL)
+        app_bail_out("%s: Could not allocate %d bytes for %s\n",
+                     opt_getprog(), sz, what);
     return vp;
 }
 
@@ -1627,7 +1631,7 @@ X509_NAME *parse_name(const char *cp, long chtype, int canmulti)
         goto err;
     }
 
-    while (*cp) {
+    while (*cp != '\0') {
         char *bp = work;
         char *typestr = bp;
         unsigned char *valstr;
@@ -1636,12 +1640,12 @@ X509_NAME *parse_name(const char *cp, long chtype, int canmulti)
         nextismulti = 0;
 
         /* Collect the type */
-        while (*cp && *cp != '=')
+        while (*cp != '\0' && *cp != '=')
             *bp++ = *cp++;
         if (*cp == '\0') {
             BIO_printf(bio_err,
-                    "%s: Hit end of string before finding the '='\n",
-                    opt_getprog());
+                       "%s: Hit end of string before finding the '='\n",
+                       opt_getprog());
             goto err;
         }
         *bp++ = '\0';
@@ -1649,7 +1653,7 @@ X509_NAME *parse_name(const char *cp, long chtype, int canmulti)
 
         /* Collect the value. */
         valstr = (unsigned char *)bp;
-        for (; *cp && *cp != '/'; *bp++ = *cp++) {
+        for (; *cp != '\0' && *cp != '/'; *bp++ = *cp++) {
             if (canmulti && *cp == '+') {
                 nextismulti = 1;
                 break;
@@ -1664,7 +1668,7 @@ X509_NAME *parse_name(const char *cp, long chtype, int canmulti)
         *bp++ = '\0';
 
         /* If not at EOS (must be + or /), move forward. */
-        if (*cp)
+        if (*cp != '\0')
             ++cp;
 
         /* Parse */
@@ -1683,6 +1687,7 @@ X509_NAME *parse_name(const char *cp, long chtype, int canmulti)
         if (!X509_NAME_add_entry_by_NID(n, nid, chtype,
                                         valstr, strlen((char *)valstr),
                                         -1, ismulti ? -1 : 0)) {
+            ERR_print_errors(bio_err);
             BIO_printf(bio_err, "%s: Error adding name attribute \"/%s=%s\"\n",
                        opt_getprog(), typestr ,valstr);
             goto err;
@@ -1949,137 +1954,6 @@ void store_setup_crl_download(X509_STORE *st)
     X509_STORE_set_lookup_crls_cb(st, crls_http_cb);
 }
 
-#ifndef OPENSSL_NO_SOCK
-static const char *tls_error_hint(void)
-{
-    unsigned long err = ERR_peek_error();
-
-    if (ERR_GET_LIB(err) != ERR_LIB_SSL)
-        err = ERR_peek_last_error();
-    if (ERR_GET_LIB(err) != ERR_LIB_SSL)
-        return NULL;
-
-    switch (ERR_GET_REASON(err)) {
-    case SSL_R_WRONG_VERSION_NUMBER:
-        return "The server does not support (a suitable version of) TLS";
-    case SSL_R_UNKNOWN_PROTOCOL:
-        return "The server does not support HTTPS";
-    case SSL_R_CERTIFICATE_VERIFY_FAILED:
-        return "Cannot authenticate server via its TLS certificate, likely due to mismatch with our trusted TLS certs or missing revocation status";
-    case SSL_AD_REASON_OFFSET + TLS1_AD_UNKNOWN_CA:
-        return "Server did not accept our TLS certificate, likely due to mismatch with server's trust anchor or missing revocation status";
-    case SSL_AD_REASON_OFFSET + SSL3_AD_HANDSHAKE_FAILURE:
-        return "TLS handshake failure. Possibly the server requires our TLS certificate but did not receive it";
-    default: /* no error or no hint available for error */
-        return NULL;
-    }
-}
-
-/* HTTP callback function that supports TLS connection also via HTTPS proxy */
-BIO *app_http_tls_cb(BIO *hbio, void *arg, int connect, int detail)
-{
-    APP_HTTP_TLS_INFO *info = (APP_HTTP_TLS_INFO *)arg;
-    SSL_CTX *ssl_ctx = info->ssl_ctx;
-    SSL *ssl;
-    BIO *sbio = NULL;
-
-    if (connect && detail) { /* connecting with TLS */
-        if ((info->use_proxy
-             && !OSSL_HTTP_proxy_connect(hbio, info->server, info->port,
-                                         NULL, NULL, /* no proxy credentials */
-                                         info->timeout, bio_err, opt_getprog()))
-                || (sbio = BIO_new(BIO_f_ssl())) == NULL) {
-            return NULL;
-        }
-        if (ssl_ctx == NULL || (ssl = SSL_new(ssl_ctx)) == NULL) {
-            BIO_free(sbio);
-            return NULL;
-        }
-
-        SSL_set_tlsext_host_name(ssl, info->server);
-
-        SSL_set_connect_state(ssl);
-        BIO_set_ssl(sbio, ssl, BIO_CLOSE);
-
-        hbio = BIO_push(sbio, hbio);
-    } else if (!connect && !detail) { /* disconnecting after error */
-        const char *hint = tls_error_hint();
-        if (hint != NULL)
-            ERR_add_error_data(2, " : ", hint);
-        /*
-         * If we pop sbio and BIO_free() it this may lead to libssl double free.
-         * Rely on BIO_free_all() done by OSSL_HTTP_transfer() in http_client.c
-         */
-    }
-    return hbio;
-}
-
-ASN1_VALUE *app_http_get_asn1(const char *url, const char *proxy,
-                              const char *no_proxy, SSL_CTX *ssl_ctx,
-                              const STACK_OF(CONF_VALUE) *headers,
-                              long timeout, const char *expected_content_type,
-                              const ASN1_ITEM *it)
-{
-    APP_HTTP_TLS_INFO info;
-    char *server;
-    char *port;
-    int use_ssl;
-    ASN1_VALUE *resp = NULL;
-
-    if (url == NULL || it == NULL) {
-        HTTPerr(0, ERR_R_PASSED_NULL_PARAMETER);
-        return NULL;
-    }
-
-    if (!OSSL_HTTP_parse_url(url, &server, &port, NULL /* ppath */, &use_ssl))
-        return NULL;
-    if (use_ssl && ssl_ctx == NULL) {
-        HTTPerr(0, ERR_R_PASSED_NULL_PARAMETER);
-        ERR_add_error_data(1, "missing SSL_CTX");
-        goto end;
-    }
-
-    info.server = server;
-    info.port = port;
-    info.use_proxy = proxy != NULL;
-    info.timeout = timeout;
-    info.ssl_ctx = ssl_ctx;
-    resp = OSSL_HTTP_get_asn1(url, proxy, no_proxy,
-                              NULL, NULL, app_http_tls_cb, &info,
-                              headers, 0 /* maxline */, 0 /* max_resp_len */,
-                              timeout, expected_content_type, it);
- end:
-    OPENSSL_free(server);
-    OPENSSL_free(port);
-    return resp;
-
-}
-
-ASN1_VALUE *app_http_post_asn1(const char *host, const char *port,
-                               const char *path, const char *proxy,
-                               const char *no_proxy, SSL_CTX *ssl_ctx,
-                               const STACK_OF(CONF_VALUE) *headers,
-                               const char *content_type,
-                               ASN1_VALUE *req, const ASN1_ITEM *req_it,
-                               long timeout, const ASN1_ITEM *rsp_it)
-{
-    APP_HTTP_TLS_INFO info;
-
-    info.server = host;
-    info.port = port;
-    info.use_proxy = proxy != NULL;
-    info.timeout = timeout;
-    info.ssl_ctx = ssl_ctx;
-    return OSSL_HTTP_post_asn1(host, port, path, ssl_ctx != NULL,
-                               proxy, no_proxy,
-                               NULL, NULL, app_http_tls_cb, &info,
-                               headers, content_type, req, req_it,
-                               0 /* maxline */,
-                               0 /* max_resp_len */, timeout, NULL, rsp_it);
-}
-
-#endif
-
 /*
  * Platform-specific sections
  */
@@ -2230,70 +2104,23 @@ double app_tminterval(int stop, int usertime)
     return ret;
 }
 
-#elif defined(OPENSSL_SYSTEM_VMS)
-# include <time.h>
-# include <times.h>
-
-double app_tminterval(int stop, int usertime)
-{
-    static clock_t tmstart;
-    double ret = 0;
-    clock_t now;
-# ifdef __TMS
-    struct tms rus;
-
-    now = times(&rus);
-    if (usertime)
-        now = rus.tms_utime;
-# else
-    if (usertime)
-        now = clock();          /* sum of user and kernel times */
-    else {
-        struct timeval tv;
-        gettimeofday(&tv, NULL);
-        now = (clock_t)((unsigned long long)tv.tv_sec * CLK_TCK +
-                        (unsigned long long)tv.tv_usec * (1000000 / CLK_TCK)
-            );
-    }
-# endif
-    if (stop == TM_START)
-        tmstart = now;
-    else
-        ret = (now - tmstart) / (double)(CLK_TCK);
-
-    return ret;
-}
-
 #elif defined(_SC_CLK_TCK)      /* by means of unistd.h */
 # include <sys/times.h>
 
 double app_tminterval(int stop, int usertime)
 {
     double ret = 0;
-    clock_t now;
-    static clock_t tmstart;
-    long int tck = sysconf(_SC_CLK_TCK);
-# ifdef __TMS
     struct tms rus;
+    clock_t now = times(&rus);
+    static clock_t tmstart;
 
-    now = times(&rus);
     if (usertime)
         now = rus.tms_utime;
-# else
-    if (usertime)
-        now = clock();          /* sum of user and kernel times */
-    else {
-        struct timeval tv;
-        gettimeofday(&tv, NULL);
-        now = (clock_t)((unsigned long long)tv.tv_sec * tck +
-                        (unsigned long long)tv.tv_usec * (1000000 / tck)
-            );
-    }
-# endif
 
     if (stop == TM_START) {
         tmstart = now;
     } else {
+        long int tck = sysconf(_SC_CLK_TCK);
         ret = (now - tmstart) / (double)tck;
     }
 

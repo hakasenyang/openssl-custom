@@ -26,6 +26,8 @@
 # include <openssl/evperr.h>
 # include <openssl/params.h>
 
+# include <openssl/mac.h>
+
 # define EVP_MAX_MD_SIZE                 64/* longest known is SHA512 */
 # define EVP_MAX_KEY_LENGTH              64
 # define EVP_MAX_IV_LENGTH               16
@@ -72,6 +74,8 @@
 # define EVP_PKEY_ED25519 NID_ED25519
 # define EVP_PKEY_X448 NID_X448
 # define EVP_PKEY_ED448 NID_ED448
+/* Special indicator that the object is uniquely provider side */
+# define EVP_PKEY_KEYMGMT -1
 
 #ifdef  __cplusplus
 extern "C" {
@@ -153,6 +157,7 @@ int (*EVP_MD_meth_get_ctrl(const EVP_MD *md))(EVP_MD_CTX *ctx, int cmd,
 #  define EVP_MD_CTRL_DIGALGID                    0x1
 #  define EVP_MD_CTRL_MICALG                      0x2
 #  define EVP_MD_CTRL_XOF_LEN                     0x3
+#  define EVP_MD_CTRL_TLSTREE                     0x4
 
 /* Minimum Algorithm specific ctrl value */
 
@@ -382,6 +387,8 @@ int (*EVP_CIPHER_meth_get_ctrl(const EVP_CIPHER *cipher))(EVP_CIPHER_CTX *,
 # define         EVP_CTRL_PROCESS_UNPROTECTED            0x28
 /* Get the supplementary wrap cipher */
 #define          EVP_CTRL_GET_WRAP_CIPHER                0x29
+/* TLSTREE key diversification */
+#define          EVP_CTRL_TLSTREE                        0x2A
 
 /* Padding modes */
 #define EVP_PADDING_PKCS7       1
@@ -1065,40 +1072,6 @@ void EVP_MD_do_all_provided(OPENSSL_CTX *libctx,
                             void (*fn)(EVP_MD *md, void *arg),
                             void *arg);
 
-/* MAC stuff */
-
-EVP_MAC *EVP_MAC_fetch(OPENSSL_CTX *libctx, const char *algorithm,
-                       const char *properties);
-int EVP_MAC_up_ref(EVP_MAC *mac);
-void EVP_MAC_free(EVP_MAC *mac);
-int EVP_MAC_number(const EVP_MAC *mac);
-int EVP_MAC_is_a(const EVP_MAC *mac, const char *name);
-const OSSL_PROVIDER *EVP_MAC_provider(const EVP_MAC *mac);
-int EVP_MAC_get_params(EVP_MAC *mac, OSSL_PARAM params[]);
-
-EVP_MAC_CTX *EVP_MAC_CTX_new(EVP_MAC *mac);
-void EVP_MAC_CTX_free(EVP_MAC_CTX *ctx);
-EVP_MAC_CTX *EVP_MAC_CTX_dup(const EVP_MAC_CTX *src);
-EVP_MAC *EVP_MAC_CTX_mac(EVP_MAC_CTX *ctx);
-int EVP_MAC_CTX_get_params(EVP_MAC_CTX *ctx, OSSL_PARAM params[]);
-int EVP_MAC_CTX_set_params(EVP_MAC_CTX *ctx, const OSSL_PARAM params[]);
-
-size_t EVP_MAC_size(EVP_MAC_CTX *ctx);
-int EVP_MAC_init(EVP_MAC_CTX *ctx);
-int EVP_MAC_update(EVP_MAC_CTX *ctx, const unsigned char *data, size_t datalen);
-int EVP_MAC_final(EVP_MAC_CTX *ctx,
-                  unsigned char *out, size_t *outl, size_t outsize);
-const OSSL_PARAM *EVP_MAC_gettable_params(const EVP_MAC *mac);
-const OSSL_PARAM *EVP_MAC_gettable_ctx_params(const EVP_MAC *mac);
-const OSSL_PARAM *EVP_MAC_settable_ctx_params(const EVP_MAC *mac);
-
-void EVP_MAC_do_all_provided(OPENSSL_CTX *libctx,
-                             void (*fn)(EVP_MAC *mac, void *arg),
-                             void *arg);
-void EVP_MAC_names_do_all(const EVP_MAC *mac,
-                          void (*fn)(const char *name, void *data),
-                          void *data);
-
 /* PKEY stuff */
 DEPRECATEDIN_3_0(int EVP_PKEY_decrypt_old(unsigned char *dec_key,
                                           const unsigned char *enc_key,
@@ -1187,9 +1160,15 @@ EVP_PKEY *d2i_KeyParams_bio(int type, EVP_PKEY **a, BIO *in);
 int EVP_PKEY_copy_parameters(EVP_PKEY *to, const EVP_PKEY *from);
 int EVP_PKEY_missing_parameters(const EVP_PKEY *pkey);
 int EVP_PKEY_save_parameters(EVP_PKEY *pkey, int mode);
+#ifndef OPENSSL_NO_DEPRECATED_3_0
 int EVP_PKEY_cmp_parameters(const EVP_PKEY *a, const EVP_PKEY *b);
+#endif
+int EVP_PKEY_parameters_eq(const EVP_PKEY *a, const EVP_PKEY *b);
 
+#ifndef OPENSSL_NO_DEPRECATED_3_0
 int EVP_PKEY_cmp(const EVP_PKEY *a, const EVP_PKEY *b);
+#endif
+int EVP_PKEY_eq(const EVP_PKEY *a, const EVP_PKEY *b);
 
 int EVP_PKEY_print_public(BIO *out, const EVP_PKEY *pkey,
                           int indent, ASN1_PCTX *pctx);
@@ -1302,7 +1281,7 @@ void EVP_PKEY_asn1_copy(EVP_PKEY_ASN1_METHOD *dst,
 void EVP_PKEY_asn1_free(EVP_PKEY_ASN1_METHOD *ameth);
 void EVP_PKEY_asn1_set_public(EVP_PKEY_ASN1_METHOD *ameth,
                               int (*pub_decode) (EVP_PKEY *pk,
-                                                 X509_PUBKEY *pub),
+                                                 const X509_PUBKEY *pub),
                               int (*pub_encode) (X509_PUBKEY *pub,
                                                  const EVP_PKEY *pk),
                               int (*pub_cmp) (const EVP_PKEY *a,
@@ -1462,6 +1441,10 @@ int EVP_PKEY_CTX_set_signature_md(EVP_PKEY_CTX *ctx, const EVP_MD *md);
  * Method handles all operations: don't assume any digest related defaults.
  */
 # define EVP_PKEY_FLAG_SIGCTX_CUSTOM     4
+
+/* Used by Chromium/QUIC */
+# define X25519_PRIVATE_KEY_LEN          32
+# define X25519_PUBLIC_VALUE_LEN         32
 
 const EVP_PKEY_METHOD *EVP_PKEY_meth_find(int type);
 EVP_PKEY_METHOD *EVP_PKEY_meth_new(int id, int flags);

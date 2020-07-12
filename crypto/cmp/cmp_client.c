@@ -146,7 +146,7 @@ static int send_receive_check(OSSL_CMP_CTX *ctx, const OSSL_CMP_MSG *req,
     OSSL_CMP_transfer_cb_t transfer_cb = ctx->transfer_cb;
 
     if (transfer_cb == NULL)
-        transfer_cb = OSSL_CMP_MSG_http_perform;
+        transfer_cb = NULL; /* TODO: will be OSSL_CMP_MSG_http_perform of chunk 10 */
 
     *rep = NULL;
     msg_timeout = ctx->msg_timeout; /* backup original value */
@@ -189,8 +189,8 @@ static int send_receive_check(OSSL_CMP_CTX *ctx, const OSSL_CMP_MSG *req,
      */
     ossl_cmp_log1(INFO, ctx, "received %s", ossl_cmp_bodytype_to_string(bt));
 
-    if ((bt = ossl_cmp_msg_check_received(ctx, *rep, unprotected_exception,
-                                          expected_type)) < 0)
+    if (!ossl_cmp_msg_check_update(ctx, *rep, unprotected_exception,
+                                   expected_type))
         return 0;
 
     if (bt == expected_type

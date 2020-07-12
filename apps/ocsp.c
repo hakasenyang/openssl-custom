@@ -83,6 +83,13 @@ static char *prog;
 static int index_changed(CA_DB *);
 #endif
 
+#ifndef OPENSSL_NO_SOCK
+static OCSP_RESPONSE *query_responder(BIO *cbio, const char *host,
+                                      const char *path,
+                                      const STACK_OF(CONF_VALUE) *headers,
+                                      OCSP_REQUEST *req, int req_timeout);
+#endif
+
 typedef enum OPTION_choice {
     OPT_ERR = -1, OPT_EOF = 0, OPT_HELP,
     OPT_OUTFILE, OPT_TIMEOUT, OPT_URL, OPT_HOST, OPT_PORT,
@@ -234,7 +241,7 @@ int ocsp_main(int argc, char **argv)
     int noCAfile = 0, noCApath = 0, noCAstore = 0;
     int accept_count = -1, add_nonce = 1, noverify = 0, use_ssl = -1;
     int vpmtouched = 0, badsig = 0, i, ignore_err = 0, nmin = 0, ndays = -1;
-    int req_text = 0, resp_text = 0, ret = 1;
+    int req_text = 0, resp_text = 0, res, ret = 1;
     int req_timeout = -1;
     long nsec = MAX_VALIDITY_PERIOD, maxage = -1;
     unsigned long sign_flags = 0, verify_flags = 0, rflags = 0;
@@ -274,8 +281,7 @@ int ocsp_main(int argc, char **argv)
             OPENSSL_free(tport);
             OPENSSL_free(tpath);
             thost = tport = tpath = NULL;
-            if (!OSSL_HTTP_parse_url(opt_arg(),
-                                     &host, &port, &path, &use_ssl)) {
+            if (!OCSP_parse_url(opt_arg(), &host, &port, &path, &use_ssl)) {
                 BIO_printf(bio_err, "%s Error parsing URL\n", prog);
                 goto end;
             }
@@ -629,13 +635,17 @@ redo_accept:
 #endif
 
         req = NULL;
-        if (!do_responder(&req, &cbio, acbio, req_timeout))
+        res = do_responder(&req, &cbio, acbio, req_timeout);
+        if (res == 0)
             goto redo_accept;
 
         if (req == NULL) {
-            resp = OCSP_response_create(OCSP_RESPONSE_STATUS_MALFORMEDREQUEST,
-                                        NULL);
-            send_ocsp_response(cbio, resp);
+            if (res == 1) {
+                resp =
+                    OCSP_response_create(OCSP_RESPONSE_STATUS_MALFORMEDREQUEST,
+                                         NULL);
+                send_ocsp_response(cbio, resp);
+            }
             goto done_resp;
         }
     }
@@ -1151,7 +1161,7 @@ static int do_responder(OCSP_REQUEST **preq, BIO **pcbio, BIO *acbio,
 {
 #ifndef OPENSSL_NO_SOCK
     return http_server_get_asn1_req(ASN1_ITEM_rptr(OCSP_RESPONSE),
-                                    (ASN1_VALUE **)preq, pcbio, acbio,
+                                    (ASN1_VALUE **)preq, NULL, pcbio, acbio,
                                     prog, 1 /* accept_get */, timeout);
 #else
     BIO_printf(bio_err,
@@ -1175,34 +1185,133 @@ static int send_ocsp_response(BIO *cbio, const OCSP_RESPONSE *resp)
 }
 
 #ifndef OPENSSL_NO_SOCK
+static OCSP_RESPONSE *query_responder(BIO *cbio, const char *host,
+                                      const char *path,
+                                      const STACK_OF(CONF_VALUE) *headers,
+                                      OCSP_REQUEST *req, int req_timeout)
+{
+    int fd;
+    int rv;
+    int i;
+    int add_host = 1;
+    OCSP_REQ_CTX *ctx = NULL;
+    OCSP_RESPONSE *rsp = NULL;
+    fd_set confds;
+    struct timeval tv;
+
+    if (req_timeout != -1)
+        BIO_set_nbio(cbio, 1);
+
+    rv = BIO_do_connect(cbio);
+
+    if ((rv <= 0) && ((req_timeout == -1) || !BIO_should_retry(cbio))) {
+        BIO_puts(bio_err, "Error connecting BIO\n");
+        return NULL;
+    }
+
+    if (BIO_get_fd(cbio, &fd) < 0) {
+        BIO_puts(bio_err, "Can't get connection fd\n");
+        goto err;
+    }
+
+    if (req_timeout != -1 && rv <= 0) {
+        FD_ZERO(&confds);
+        openssl_fdset(fd, &confds);
+        tv.tv_usec = 0;
+        tv.tv_sec = req_timeout;
+        rv = select(fd + 1, NULL, (void *)&confds, NULL, &tv);
+        if (rv == 0) {
+            BIO_puts(bio_err, "Timeout on connect\n");
+            return NULL;
+        }
+    }
+
+    ctx = OCSP_sendreq_new(cbio, path, NULL, -1);
+    if (ctx == NULL)
+        return NULL;
+
+    for (i = 0; i < sk_CONF_VALUE_num(headers); i++) {
+        CONF_VALUE *hdr = sk_CONF_VALUE_value(headers, i);
+        if (add_host == 1 && strcasecmp("host", hdr->name) == 0)
+            add_host = 0;
+        if (!OCSP_REQ_CTX_add1_header(ctx, hdr->name, hdr->value))
+            goto err;
+    }
+
+    if (add_host == 1 && OCSP_REQ_CTX_add1_header(ctx, "Host", host) == 0)
+        goto err;
+
+    if (!OCSP_REQ_CTX_set1_req(ctx, req))
+        goto err;
+
+    for (;;) {
+        rv = OCSP_sendreq_nbio(&rsp, ctx);
+        if (rv != -1)
+            break;
+        if (req_timeout == -1)
+            continue;
+        FD_ZERO(&confds);
+        openssl_fdset(fd, &confds);
+        tv.tv_usec = 0;
+        tv.tv_sec = req_timeout;
+        if (BIO_should_read(cbio)) {
+            rv = select(fd + 1, (void *)&confds, NULL, NULL, &tv);
+        } else if (BIO_should_write(cbio)) {
+            rv = select(fd + 1, NULL, (void *)&confds, NULL, &tv);
+        } else {
+            BIO_puts(bio_err, "Unexpected retry condition\n");
+            goto err;
+        }
+        if (rv == 0) {
+            BIO_puts(bio_err, "Timeout on request\n");
+            break;
+        }
+        if (rv == -1) {
+            BIO_puts(bio_err, "Select error\n");
+            break;
+        }
+
+    }
+ err:
+    OCSP_REQ_CTX_free(ctx);
+
+    return rsp;
+}
+
 OCSP_RESPONSE *process_responder(OCSP_REQUEST *req,
                                  const char *host, const char *path,
                                  const char *port, int use_ssl,
                                  STACK_OF(CONF_VALUE) *headers,
                                  int req_timeout)
 {
+    BIO *cbio = NULL;
     SSL_CTX *ctx = NULL;
     OCSP_RESPONSE *resp = NULL;
 
+    cbio = BIO_new_connect(host);
+    if (cbio == NULL) {
+        BIO_printf(bio_err, "Error creating connect BIO\n");
+        goto end;
+    }
+    if (port != NULL)
+        BIO_set_conn_port(cbio, port);
     if (use_ssl == 1) {
+        BIO *sbio;
         ctx = SSL_CTX_new(TLS_client_method());
         if (ctx == NULL) {
             BIO_printf(bio_err, "Error creating SSL context.\n");
             goto end;
         }
         SSL_CTX_set_mode(ctx, SSL_MODE_AUTO_RETRY);
+        sbio = BIO_new_ssl(ctx, 1);
+        cbio = BIO_push(sbio, cbio);
     }
 
-    resp = (OCSP_RESPONSE *)
-        app_http_post_asn1(host, port, path, NULL, NULL /* no proxy used */,
-                           ctx, headers, "application/ocsp-request",
-                           (ASN1_VALUE *)req, ASN1_ITEM_rptr(OCSP_REQUEST),
-                           req_timeout, ASN1_ITEM_rptr(OCSP_RESPONSE));
-
+    resp = query_responder(cbio, host, path, headers, req, req_timeout);
     if (resp == NULL)
         BIO_printf(bio_err, "Error querying OCSP responder\n");
-
  end:
+    BIO_free_all(cbio);
     SSL_CTX_free(ctx);
     return resp;
 }

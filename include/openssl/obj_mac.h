@@ -4859,7 +4859,7 @@
 
 #define SN_chacha20_poly1305_draft              "ChaCha20-Poly1305-D"
 #define LN_chacha20_poly1305_draft              "chacha20-poly1305-draft"
-#define NID_chacha20_poly1305_draft             1218
+#define NID_chacha20_poly1305_draft             1219
 
 #define SN_chacha20             "ChaCha20"
 #define LN_chacha20             "chacha20"
@@ -5105,6 +5105,10 @@
 #define SN_kx_gost              "KxGOST"
 #define LN_kx_gost              "kx-gost"
 #define NID_kx_gost             1045
+
+#define SN_kx_gost18            "KxGOST18"
+#define LN_kx_gost18            "kx-gost18"
+#define NID_kx_gost18           1218
 
 #define SN_kx_any               "KxANY"
 #define LN_kx_any               "kx-any"

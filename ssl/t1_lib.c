@@ -621,7 +621,7 @@ static int tls1_check_pkey_comp(SSL *s, EVP_PKEY *pkey)
              */
             return 1;
     } else {
-        int field_type = EC_METHOD_get_field_type(EC_GROUP_method_of(grp));
+        int field_type = EC_GROUP_get_field_type(grp);
 
         if (field_type == NID_X9_62_prime_field)
             comp_id = TLSEXT_ECPOINTFORMAT_ansiX962_compressed_prime;
@@ -1000,6 +1000,21 @@ static const SIGALG_LOOKUP *tls1_get_legacy_sigalg(const SSL *s, int idx)
                     }
                 }
             }
+            /*
+             * As both SSL_PKEY_GOST12_512 and SSL_PKEY_GOST12_256 indices can be used
+             * with new (aGOST12-only) ciphersuites, we should find out which one is available really.
+             */
+            else if (idx == SSL_PKEY_GOST12_256) {
+                int real_idx;
+
+                for (real_idx = SSL_PKEY_GOST12_512; real_idx >= SSL_PKEY_GOST12_256;
+                     real_idx--) {
+                     if (s->cert->pkeys[real_idx].privatekey != NULL) {
+                         idx = real_idx;
+                         break;
+                     }
+                }
+            }
         } else {
             idx = s->cert->key - s->cert->pkeys;
         }
@@ -1118,17 +1133,6 @@ int tls12_check_peer_sigalg(SSL *s, uint16_t sig, EVP_PKEY *pkey)
     size_t sent_sigslen, i, cidx;
     int pkeyid = -1;
     const SIGALG_LOOKUP *lu;
-
-    /*
-     * TODO(3.0) Remove this when we adapted this function for provider
-     * side keys.  We know that EVP_PKEY_get0() downgrades an EVP_PKEY
-     * to contain a legacy key.
-     *
-     * THIS IS TEMPORARY
-     */
-    EVP_PKEY_get0(pkey);
-    if (EVP_PKEY_id(pkey) == EVP_PKEY_NONE)
-        return 0;
 
     pkeyid = EVP_PKEY_id(pkey);
     /* Should never happen */
@@ -1719,7 +1723,6 @@ static int tls12_sigalg_allowed(const SSL *s, int op, const SIGALG_LOOKUP *lu)
     unsigned char sigalgstr[2];
     int secbits;
 
-    /* See if sigalgs is recognised and if hash is enabled */
     if (!tls1_lookup_md(lu, NULL))
         return 0;
     /* DSA is not allowed in TLS 1.3 */
@@ -1767,7 +1770,7 @@ static int tls12_sigalg_allowed(const SSL *s, int op, const SIGALG_LOOKUP *lu)
                 if (ssl_cipher_disabled(s, c, SSL_SECOP_CIPHER_SUPPORTED, 0))
                     continue;
 
-                if ((c->algorithm_mkey & SSL_kGOST) != 0)
+                if ((c->algorithm_mkey & (SSL_kGOST | SSL_kGOST18)) != 0)
                     break;
             }
             if (i == num)
@@ -2563,46 +2566,48 @@ int SSL_check_chain(SSL *s, X509 *x, EVP_PKEY *pk, STACK_OF(X509) *chain)
 #ifndef OPENSSL_NO_DH
 DH *ssl_get_auto_dh(SSL *s)
 {
+    DH *dhp;
+    BIGNUM *p, *g;
     int dh_secbits = 80;
-    if (s->cert->dh_tmp_auto == 2)
-        return DH_get_1024_160();
-    if (s->s3.tmp.new_cipher->algorithm_auth & (SSL_aNULL | SSL_aPSK)) {
-        if (s->s3.tmp.new_cipher->strength_bits == 256)
-            dh_secbits = 128;
-        else
-            dh_secbits = 80;
-    } else {
-        if (s->s3.tmp.cert == NULL)
-            return NULL;
-        dh_secbits = EVP_PKEY_security_bits(s->s3.tmp.cert->privatekey);
+    if (s->cert->dh_tmp_auto != 2) {
+        if (s->s3.tmp.new_cipher->algorithm_auth & (SSL_aNULL | SSL_aPSK)) {
+            if (s->s3.tmp.new_cipher->strength_bits == 256)
+                dh_secbits = 128;
+            else
+                dh_secbits = 80;
+        } else {
+            if (s->s3.tmp.cert == NULL)
+                return NULL;
+            dh_secbits = EVP_PKEY_security_bits(s->s3.tmp.cert->privatekey);
+        }
     }
 
-    if (dh_secbits >= 128) {
-        DH *dhp = DH_new();
-        BIGNUM *p, *g;
-        if (dhp == NULL)
-            return NULL;
-        g = BN_new();
-        if (g == NULL || !BN_set_word(g, 2)) {
-            DH_free(dhp);
-            BN_free(g);
-            return NULL;
-        }
-        if (dh_secbits >= 192)
-            p = BN_get_rfc3526_prime_8192(NULL);
-        else
-            p = BN_get_rfc3526_prime_3072(NULL);
-        if (p == NULL || !DH_set0_pqg(dhp, p, NULL, g)) {
-            DH_free(dhp);
-            BN_free(p);
-            BN_free(g);
-            return NULL;
-        }
-        return dhp;
+    dhp = DH_new();
+    if (dhp == NULL)
+        return NULL;
+    g = BN_new();
+    if (g == NULL || !BN_set_word(g, 2)) {
+        DH_free(dhp);
+        BN_free(g);
+        return NULL;
     }
-    if (dh_secbits >= 112)
-        return DH_get_2048_224();
-    return DH_get_1024_160();
+    if (dh_secbits >= 192)
+        p = BN_get_rfc3526_prime_8192(NULL);
+    else if (dh_secbits >= 152)
+        p = BN_get_rfc3526_prime_4096(NULL);
+    else if (dh_secbits >= 128)
+        p = BN_get_rfc3526_prime_3072(NULL);
+    else if (dh_secbits >= 112)
+        p = BN_get_rfc3526_prime_2048(NULL);
+    else
+        p = BN_get_rfc2409_prime_1024(NULL);
+    if (p == NULL || !DH_set0_pqg(dhp, p, NULL, g)) {
+        DH_free(dhp);
+        BN_free(p);
+        BN_free(g);
+        return NULL;
+    }
+    return dhp;
 }
 #endif
 
@@ -3064,12 +3069,12 @@ SSL_HMAC *ssl_hmac_new(const SSL_CTX *ctx)
     }
 #endif
     mac = EVP_MAC_fetch(ctx->libctx, "HMAC", NULL);
-    if (mac == NULL || (ret->ctx = EVP_MAC_CTX_new(mac)) == NULL)
+    if (mac == NULL || (ret->ctx = EVP_MAC_new_ctx(mac)) == NULL)
         goto err;
     EVP_MAC_free(mac);
     return ret;
  err:
-    EVP_MAC_CTX_free(ret->ctx);
+    EVP_MAC_free_ctx(ret->ctx);
     EVP_MAC_free(mac);
     OPENSSL_free(ret);
     return NULL;
@@ -3078,7 +3083,7 @@ SSL_HMAC *ssl_hmac_new(const SSL_CTX *ctx)
 void ssl_hmac_free(SSL_HMAC *ctx)
 {
     if (ctx != NULL) {
-        EVP_MAC_CTX_free(ctx->ctx);
+        EVP_MAC_free_ctx(ctx->ctx);
 #ifndef OPENSSL_NO_DEPRECATED_3_0
         HMAC_CTX_free(ctx->old_ctx);
 #endif
@@ -3106,7 +3111,7 @@ int ssl_hmac_init(SSL_HMAC *ctx, void *key, size_t len, char *md)
         *p++ = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, md, 0);
         *p++ = OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_KEY, key, len);
         *p = OSSL_PARAM_construct_end();
-        if (EVP_MAC_CTX_set_params(ctx->ctx, params) && EVP_MAC_init(ctx->ctx))
+        if (EVP_MAC_set_ctx_params(ctx->ctx, params) && EVP_MAC_init(ctx->ctx))
             return 1;
     }
 #ifndef OPENSSL_NO_DEPRECATED_3_0

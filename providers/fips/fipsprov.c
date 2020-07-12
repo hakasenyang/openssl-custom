@@ -113,11 +113,12 @@ static const OSSL_PARAM fips_param_types[] = {
 /*
  * Parameters to retrieve from the core provider - required for self testing.
  * NOTE: inside core_get_params() these will be loaded from config items
- * stored inside prov->parameters (except for OSSL_PROV_PARAM_MODULE_FILENAME).
+ * stored inside prov->parameters (except for
+ * OSSL_PROV_PARAM_CORE_MODULE_FILENAME).
  */
 static OSSL_PARAM core_params[] =
 {
-    OSSL_PARAM_utf8_ptr(OSSL_PROV_PARAM_MODULE_FILENAME,
+    OSSL_PARAM_utf8_ptr(OSSL_PROV_PARAM_CORE_MODULE_FILENAME,
                         selftest_params.module_filename,
                         sizeof(selftest_params.module_filename)),
     OSSL_PARAM_utf8_ptr(OSSL_PROV_FIPS_PARAM_MODULE_MAC,
@@ -376,8 +377,17 @@ static const OSSL_ALGORITHM fips_digests[] = {
     { "SHA3-384", "provider=fips,fips=yes", sha3_384_functions },
     { "SHA3-512", "provider=fips,fips=yes", sha3_512_functions },
 
-    /* Non-FIPS algorithm to support oneshot_hash in the Ed448 code */
-    { "SHAKE-256:SHAKE256", "provider=fips,fips=no", shake_256_functions },
+    { "SHAKE-128:SHAKE128", "provider=fips,fips=yes", shake_128_functions },
+    { "SHAKE-256:SHAKE256", "provider=fips,fips=yes", shake_256_functions },
+
+    /*
+     * KECCAK-KMAC-128 and KECCAK-KMAC-256 as hashes are mostly useful for
+     * KMAC128 and KMAC256.
+     */
+    { "KECCAK-KMAC-128:KECCAK-KMAC128", "provider=fips,fips=yes",
+      keccak_kmac_128_functions },
+    { "KECCAK-KMAC-256:KECCAK-KMAC256", "provider=fips,fips=yes",
+      keccak_kmac_256_functions },
     { NULL, NULL, NULL }
 };
 
@@ -389,6 +399,18 @@ static const OSSL_ALGORITHM_CAPABLE fips_ciphers[] = {
     ALG("AES-256-CBC", aes256cbc_functions),
     ALG("AES-192-CBC", aes192cbc_functions),
     ALG("AES-128-CBC", aes128cbc_functions),
+    ALG("AES-256-OFB", aes256ofb_functions),
+    ALG("AES-192-OFB", aes192ofb_functions),
+    ALG("AES-128-OFB", aes128ofb_functions),
+    ALG("AES-256-CFB", aes256cfb_functions),
+    ALG("AES-192-CFB", aes192cfb_functions),
+    ALG("AES-128-CFB", aes128cfb_functions),
+    ALG("AES-256-CFB1", aes256cfb1_functions),
+    ALG("AES-192-CFB1", aes192cfb1_functions),
+    ALG("AES-128-CFB1", aes128cfb1_functions),
+    ALG("AES-256-CFB8", aes256cfb8_functions),
+    ALG("AES-192-CFB8", aes192cfb8_functions),
+    ALG("AES-128-CFB8", aes128cfb8_functions),
     ALG("AES-256-CTR", aes256ctr_functions),
     ALG("AES-192-CTR", aes192ctr_functions),
     ALG("AES-128-CTR", aes128ctr_functions),
@@ -426,8 +448,13 @@ static const OSSL_ALGORITHM_CAPABLE fips_ciphers[] = {
 static OSSL_ALGORITHM exported_fips_ciphers[OSSL_NELEM(fips_ciphers)];
 
 static const OSSL_ALGORITHM fips_macs[] = {
+#ifndef OPENSSL_NO_CMAC
+    { "CMAC", "provider=fips,fips=yes", cmac_functions },
+#endif
     { "GMAC", "provider=fips,fips=yes", gmac_functions },
     { "HMAC", "provider=fips,fips=yes", hmac_functions },
+    { "KMAC-128:KMAC128", "provider=fips,fips=yes", kmac128_functions },
+    { "KMAC-256:KMAC256", "provider=fips,fips=yes", kmac256_functions },
     { NULL, NULL, NULL }
 };
 
@@ -435,7 +462,10 @@ static const OSSL_ALGORITHM fips_kdfs[] = {
     { "HKDF", "provider=fips,fips=yes", kdf_hkdf_functions },
     { "SSKDF", "provider=fips,fips=yes", kdf_sskdf_functions },
     { "PBKDF2", "provider=fips,fips=yes", kdf_pbkdf2_functions },
+    { "SSHKDF", "provider=fips,fips=yes", kdf_sshkdf_functions },
+    { "X963KDF", "provider=fips,fips=yes", kdf_x963_kdf_functions },
     { "TLS1-PRF", "provider=fips,fips=yes", kdf_tls1_prf_functions },
+    { "KBKDF", "provider=fips,fips=yes", kdf_kbkdf_functions },
     { NULL, NULL, NULL }
 };
 
@@ -477,7 +507,8 @@ static const OSSL_ALGORITHM fips_keymgmt[] = {
     { "DSA", "provider=fips,fips=yes", dsa_keymgmt_functions },
 #endif
     { "RSA:rsaEncryption", "provider=fips,fips=yes", rsa_keymgmt_functions },
-    { "RSA-PSS:RSASSA-PSS", "provider=default", rsapss_keymgmt_functions },
+    { "RSA-PSS:RSASSA-PSS", "provider=fips,fips=yes",
+      rsapss_keymgmt_functions },
 #ifndef OPENSSL_NO_EC
     { "EC:id-ecPublicKey", "provider=fips,fips=yes", ec_keymgmt_functions },
     { "X25519", "provider=fips,fips=no", x25519_keymgmt_functions },

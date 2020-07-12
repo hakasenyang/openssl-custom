@@ -715,21 +715,6 @@ int tls_parse_ctos_key_share(SSL *s, PACKET *pkt, unsigned int context, X509 *x,
             return 0;
         }
 
-        /*
-         * TODO(3.0) Remove this when EVP_PKEY_get1_tls_encodedpoint()
-         * knows how to get a key from an encoded point with the help of
-         * a OSSL_SERIALIZER deserializer.  We know that EVP_PKEY_get0()
-         * downgrades an EVP_PKEY to contain a legacy key.
-         *
-         * THIS IS TEMPORARY
-         */
-        EVP_PKEY_get0(s->s3.peer_tmp);
-        if (EVP_PKEY_id(s->s3.peer_tmp) == EVP_PKEY_NONE) {
-            SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_PARSE_CTOS_KEY_SHARE,
-                     ERR_R_INTERNAL_ERROR);
-            return 0;
-        }
-
         s->s3.group_id = group_id;
 
         if (!EVP_PKEY_set1_tls_encodedpoint(s->s3.peer_tmp,
@@ -1326,6 +1311,26 @@ int tls_parse_ctos_post_handshake_auth(SSL *s, PACKET *pkt, unsigned int context
     return 1;
 }
 
+#ifndef OPENSSL_NO_QUIC
+/* SAME AS tls_parse_stoc_quic_transport_params() */
+int tls_parse_ctos_quic_transport_params(SSL *s, PACKET *pkt, unsigned int context,
+                                         X509 *x, size_t chainidx)
+{
+    OPENSSL_free(s->ext.peer_quic_transport_params);
+    s->ext.peer_quic_transport_params = NULL;
+    s->ext.peer_quic_transport_params_len = 0;
+
+    if (!PACKET_memdup(pkt,
+                       &s->ext.peer_quic_transport_params,
+                       &s->ext.peer_quic_transport_params_len)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR,
+                 SSL_F_TLS_PARSE_CTOS_QUIC_TRANSPORT_PARAMS, ERR_R_INTERNAL_ERROR);
+        return 0;
+    }
+    return 1;
+}
+#endif
+
 /*
  * Add the server's renegotiation binding
  */
@@ -1647,7 +1652,9 @@ EXT_RETURN tls_construct_stoc_etm(SSL *s, WPACKET *pkt, unsigned int context,
     if (s->s3.tmp.new_cipher->algorithm_mac == SSL_AEAD
         || s->s3.tmp.new_cipher->algorithm_enc == SSL_RC4
         || s->s3.tmp.new_cipher->algorithm_enc == SSL_eGOST2814789CNT
-        || s->s3.tmp.new_cipher->algorithm_enc == SSL_eGOST2814789CNT12) {
+        || s->s3.tmp.new_cipher->algorithm_enc == SSL_eGOST2814789CNT12
+        || s->s3.tmp.new_cipher->algorithm_enc == SSL_MAGMA
+        || s->s3.tmp.new_cipher->algorithm_enc == SSL_KUZNYECHIK) {
         s->ext.use_etm = 0;
         return EXT_RETURN_NOT_SENT;
     }
@@ -1751,21 +1758,6 @@ EXT_RETURN tls_construct_stoc_key_share(SSL *s, WPACKET *pkt,
     if (skey == NULL) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_CONSTRUCT_STOC_KEY_SHARE,
                  ERR_R_MALLOC_FAILURE);
-        return EXT_RETURN_FAIL;
-    }
-
-    /*
-     * TODO(3.0) Remove this when EVP_PKEY_get1_tls_encodedpoint()
-     * knows how to get a key from an encoded point with the help of
-     * a OSSL_SERIALIZER deserializer.  We know that EVP_PKEY_get0()
-     * downgrades an EVP_PKEY to contain a legacy key.
-     *
-     * THIS IS TEMPORARY
-     */
-    EVP_PKEY_get0(skey);
-    if (EVP_PKEY_id(skey) == EVP_PKEY_NONE) {
-        SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS_CONSTRUCT_STOC_KEY_SHARE,
-                 ERR_R_INTERNAL_ERROR);
         return EXT_RETURN_FAIL;
     }
 
@@ -1966,12 +1958,20 @@ EXT_RETURN tls_construct_stoc_early_data(SSL *s, WPACKET *pkt,
                                          size_t chainidx)
 {
     if (context == SSL_EXT_TLS1_3_NEW_SESSION_TICKET) {
-        if (s->max_early_data == 0)
+        uint32_t max_early_data = s->max_early_data;
+
+        if (max_early_data == 0)
             return EXT_RETURN_NOT_SENT;
+
+#ifndef OPENSSL_NO_QUIC
+        /* QUIC server must always send 0xFFFFFFFF, per draft-ietf-quic-tls-24 S4.5 */
+        if (s->quic_method != NULL)
+            max_early_data = 0xFFFFFFFF;
+#endif
 
         if (!WPACKET_put_bytes_u16(pkt, TLSEXT_TYPE_early_data)
                 || !WPACKET_start_sub_packet_u16(pkt)
-                || !WPACKET_put_bytes_u32(pkt, s->max_early_data)
+                || !WPACKET_put_bytes_u32(pkt, max_early_data)
                 || !WPACKET_close(pkt)) {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR,
                      SSL_F_TLS_CONSTRUCT_STOC_EARLY_DATA, ERR_R_INTERNAL_ERROR);
@@ -2012,3 +2012,26 @@ EXT_RETURN tls_construct_stoc_psk(SSL *s, WPACKET *pkt, unsigned int context,
 
     return EXT_RETURN_SENT;
 }
+
+#ifndef OPENSSL_NO_QUIC
+/* SAME AS tls_construct_ctos_quic_transport_params() */
+EXT_RETURN tls_construct_stoc_quic_transport_params(SSL *s, WPACKET *pkt,
+                                                    unsigned int context, X509 *x,
+                                                    size_t chainidx)
+{
+    if (s->ext.quic_transport_params == NULL
+        || s->ext.quic_transport_params_len == 0) {
+        return EXT_RETURN_NOT_SENT;
+    }
+
+    if (!WPACKET_put_bytes_u16(pkt, TLSEXT_TYPE_quic_transport_parameters)
+        || !WPACKET_sub_memcpy_u16(pkt, s->ext.quic_transport_params,
+                                   s->ext.quic_transport_params_len)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR,
+                 SSL_F_TLS_CONSTRUCT_STOC_QUIC_TRANSPORT_PARAMS, ERR_R_INTERNAL_ERROR);
+        return EXT_RETURN_FAIL;
+    }
+
+    return EXT_RETURN_SENT;
+}
+#endif

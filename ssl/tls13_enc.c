@@ -9,6 +9,8 @@
 
 #include <stdlib.h>
 #include "ssl_local.h"
+#include "internal/ktls.h"
+#include "record/record_local.h"
 #include "internal/cryptlib.h"
 #include <openssl/evp.h>
 #include <openssl/kdf.h>
@@ -54,7 +56,7 @@ int tls13_hkdf_expand(SSL *s, const EVP_MD *md, const unsigned char *secret,
                             + 1 + EVP_MAX_MD_SIZE];
     WPACKET pkt;
 
-    kctx = EVP_KDF_CTX_new(kdf);
+    kctx = EVP_KDF_new_ctx(kdf);
     EVP_KDF_free(kdf);
     if (kctx == NULL)
         return 0;
@@ -70,7 +72,7 @@ int tls13_hkdf_expand(SSL *s, const EVP_MD *md, const unsigned char *secret,
              */
             SSLerr(SSL_F_TLS13_HKDF_EXPAND, SSL_R_TLS_ILLEGAL_EXPORTER_LABEL);
         }
-        EVP_KDF_CTX_free(kctx);
+        EVP_KDF_free_ctx(kctx);
         return 0;
     }
 
@@ -85,7 +87,7 @@ int tls13_hkdf_expand(SSL *s, const EVP_MD *md, const unsigned char *secret,
             || !WPACKET_sub_memcpy_u8(&pkt, data, (data == NULL) ? 0 : datalen)
             || !WPACKET_get_total_written(&pkt, &hkdflabellen)
             || !WPACKET_finish(&pkt)) {
-        EVP_KDF_CTX_free(kctx);
+        EVP_KDF_free_ctx(kctx);
         WPACKET_cleanup(&pkt);
         if (fatal)
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS13_HKDF_EXPAND,
@@ -104,10 +106,10 @@ int tls13_hkdf_expand(SSL *s, const EVP_MD *md, const unsigned char *secret,
                                              hkdflabel, hkdflabellen);
     *p++ = OSSL_PARAM_construct_end();
 
-    ret = EVP_KDF_CTX_set_params(kctx, params) <= 0
+    ret = EVP_KDF_set_ctx_params(kctx, params) <= 0
         || EVP_KDF_derive(kctx, out, outlen) <= 0;
 
-    EVP_KDF_CTX_free(kctx);
+    EVP_KDF_free_ctx(kctx);
 
     if (ret != 0) {
         if (fatal)
@@ -195,7 +197,7 @@ int tls13_generate_secret(SSL *s, const EVP_MD *md,
     unsigned char preextractsec[EVP_MAX_MD_SIZE];
 
     kdf = EVP_KDF_fetch(NULL, OSSL_KDF_NAME_HKDF, NULL);
-    kctx = EVP_KDF_CTX_new(kdf);
+    kctx = EVP_KDF_new_ctx(kdf);
     EVP_KDF_free(kdf);
     if (kctx == NULL) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS13_GENERATE_SECRET,
@@ -208,7 +210,7 @@ int tls13_generate_secret(SSL *s, const EVP_MD *md,
     if (!ossl_assert(mdleni >= 0)) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS13_GENERATE_SECRET,
                  ERR_R_INTERNAL_ERROR);
-        EVP_KDF_CTX_free(kctx);
+        EVP_KDF_free_ctx(kctx);
         return 0;
     }
     mdlen = (size_t)mdleni;
@@ -231,7 +233,7 @@ int tls13_generate_secret(SSL *s, const EVP_MD *md,
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS13_GENERATE_SECRET,
                      ERR_R_INTERNAL_ERROR);
             EVP_MD_CTX_free(mctx);
-            EVP_KDF_CTX_free(kctx);
+            EVP_KDF_free_ctx(kctx);
             return 0;
         }
         EVP_MD_CTX_free(mctx);
@@ -242,7 +244,7 @@ int tls13_generate_secret(SSL *s, const EVP_MD *md,
                                sizeof(derived_secret_label) - 1, hash, mdlen,
                                preextractsec, mdlen, 1)) {
             /* SSLfatal() already called */
-            EVP_KDF_CTX_free(kctx);
+            EVP_KDF_free_ctx(kctx);
             return 0;
         }
 
@@ -261,14 +263,14 @@ int tls13_generate_secret(SSL *s, const EVP_MD *md,
                                              prevsecretlen);
     *p++ = OSSL_PARAM_construct_end();
 
-    ret = EVP_KDF_CTX_set_params(kctx, params) <= 0
+    ret = EVP_KDF_set_ctx_params(kctx, params) <= 0
         || EVP_KDF_derive(kctx, outsecret, mdlen) <= 0;
 
     if (ret != 0)
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS13_GENERATE_SECRET,
                  ERR_R_INTERNAL_ERROR);
 
-    EVP_KDF_CTX_free(kctx);
+    EVP_KDF_free_ctx(kctx);
     if (prevsecret == preextractsec)
         OPENSSL_cleanse(preextractsec, mdlen);
     return ret == 0;
@@ -386,9 +388,9 @@ static int derive_secret_key_and_iv(SSL *s, int sending, const EVP_MD *md,
                                     const unsigned char *hash,
                                     const unsigned char *label,
                                     size_t labellen, unsigned char *secret,
-                                    unsigned char *iv, EVP_CIPHER_CTX *ciph_ctx)
+                                    unsigned char *key, unsigned char *iv,
+                                    EVP_CIPHER_CTX *ciph_ctx)
 {
-    unsigned char key[EVP_MAX_KEY_LENGTH];
     size_t ivlen, keylen, taglen;
     int hashleni = EVP_MD_size(md);
     size_t hashlen;
@@ -397,14 +399,14 @@ static int derive_secret_key_and_iv(SSL *s, int sending, const EVP_MD *md,
     if (!ossl_assert(hashleni >= 0)) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_DERIVE_SECRET_KEY_AND_IV,
                  ERR_R_EVP_LIB);
-        goto err;
+        return 0;
     }
     hashlen = (size_t)hashleni;
 
     if (!tls13_hkdf_expand(s, md, insecret, label, labellen, hash, hashlen,
                            secret, hashlen, 1)) {
         /* SSLfatal() already called */
-        goto err;
+        return 0;
     }
 
     /* TODO(size_t): convert me */
@@ -424,7 +426,7 @@ static int derive_secret_key_and_iv(SSL *s, int sending, const EVP_MD *md,
         } else {
             SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_DERIVE_SECRET_KEY_AND_IV,
                      ERR_R_EVP_LIB);
-            goto err;
+            return 0;
         }
         if (algenc & (SSL_AES128CCM8 | SSL_AES256CCM8))
             taglen = EVP_CCM8_TLS_TAG_LEN;
@@ -438,7 +440,7 @@ static int derive_secret_key_and_iv(SSL *s, int sending, const EVP_MD *md,
     if (!tls13_derive_key(s, md, secret, key, keylen)
             || !tls13_derive_iv(s, md, secret, iv, ivlen)) {
         /* SSLfatal() already called */
-        goto err;
+        return 0;
     }
 
     if (EVP_CipherInit_ex(ciph_ctx, ciph, NULL, NULL, NULL, sending) <= 0
@@ -448,37 +450,148 @@ static int derive_secret_key_and_iv(SSL *s, int sending, const EVP_MD *md,
         || EVP_CipherInit_ex(ciph_ctx, NULL, NULL, key, NULL, -1) <= 0) {
         SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_DERIVE_SECRET_KEY_AND_IV,
                  ERR_R_EVP_LIB);
-        goto err;
+        return 0;
     }
 
     return 1;
- err:
-    OPENSSL_cleanse(key, sizeof(key));
-    return 0;
 }
 
+#ifdef CHARSET_EBCDIC
+static const unsigned char client_early_traffic[]       = {0x63, 0x20, 0x65, 0x20,       /*traffic*/0x74, 0x72, 0x61, 0x66, 0x66, 0x69, 0x63, 0x00};
+static const unsigned char client_handshake_traffic[]   = {0x63, 0x20, 0x68, 0x73, 0x20, /*traffic*/0x74, 0x72, 0x61, 0x66, 0x66, 0x69, 0x63, 0x00};
+static const unsigned char client_application_traffic[] = {0x63, 0x20, 0x61, 0x70, 0x20, /*traffic*/0x74, 0x72, 0x61, 0x66, 0x66, 0x69, 0x63, 0x00};
+static const unsigned char server_handshake_traffic[]   = {0x73, 0x20, 0x68, 0x73, 0x20, /*traffic*/0x74, 0x72, 0x61, 0x66, 0x66, 0x69, 0x63, 0x00};
+static const unsigned char server_application_traffic[] = {0x73, 0x20, 0x61, 0x70, 0x20, /*traffic*/0x74, 0x72, 0x61, 0x66, 0x66, 0x69, 0x63, 0x00};
+static const unsigned char exporter_master_secret[] = {0x65, 0x78, 0x70, 0x20,                    /* master*/  0x6D, 0x61, 0x73, 0x74, 0x65, 0x72, 0x00};
+static const unsigned char resumption_master_secret[] = {0x72, 0x65, 0x73, 0x20,                  /* master*/  0x6D, 0x61, 0x73, 0x74, 0x65, 0x72, 0x00};
+static const unsigned char early_exporter_master_secret[] = {0x65, 0x20, 0x65, 0x78, 0x70, 0x20,  /* master*/  0x6D, 0x61, 0x73, 0x74, 0x65, 0x72, 0x00};
+#else
+static const unsigned char client_early_traffic[] = "c e traffic";
+static const unsigned char client_handshake_traffic[] = "c hs traffic";
+static const unsigned char client_application_traffic[] = "c ap traffic";
+static const unsigned char server_handshake_traffic[] = "s hs traffic";
+static const unsigned char server_application_traffic[] = "s ap traffic";
+static const unsigned char exporter_master_secret[] = "exp master";
+static const unsigned char resumption_master_secret[] = "res master";
+static const unsigned char early_exporter_master_secret[] = "e exp master";
+#endif
+#ifndef OPENSSL_NO_QUIC
+static int quic_change_cipher_state(SSL *s, int which)
+{
+    unsigned char hash[EVP_MAX_MD_SIZE];
+    size_t hashlen = 0;
+    int hashleni;
+    int ret = 0;
+    const EVP_MD *md = NULL;
+    OSSL_ENCRYPTION_LEVEL level = ssl_encryption_initial;
+    int is_handshake = ((which & SSL3_CC_HANDSHAKE) == SSL3_CC_HANDSHAKE);
+    int is_client_read = ((which & SSL3_CHANGE_CIPHER_CLIENT_READ) == SSL3_CHANGE_CIPHER_CLIENT_READ);
+    int is_server_write = ((which & SSL3_CHANGE_CIPHER_SERVER_WRITE) == SSL3_CHANGE_CIPHER_SERVER_WRITE);
+    int is_early = (which & SSL3_CC_EARLY);
+
+    md = ssl_handshake_md(s);
+    if (!ssl3_digest_cached_records(s, 1)
+        || !ssl_handshake_hash(s, hash, sizeof(hash), &hashlen)) {
+        /* SSLfatal() already called */;
+        goto err;
+    }
+
+    /* Ensure cast to size_t is safe */
+    hashleni = EVP_MD_size(md);
+    if (!ossl_assert(hashleni >= 0)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_QUIC_CHANGE_CIPHER_STATE,
+                 ERR_R_EVP_LIB);
+        goto err;
+    }
+    hashlen = (size_t)hashleni;
+
+    if (is_client_read || is_server_write) {
+        if (is_handshake) {
+            level = ssl_encryption_handshake;
+
+            if (!tls13_hkdf_expand(s, md, s->handshake_secret, client_handshake_traffic,
+                                   sizeof(client_handshake_traffic)-1, hash, hashlen,
+                                   s->client_hand_traffic_secret, hashlen, 1)
+                || !ssl_log_secret(s, CLIENT_HANDSHAKE_LABEL, s->client_hand_traffic_secret, hashlen)
+                || !tls13_derive_finishedkey(s, md, s->client_hand_traffic_secret,
+                                             s->client_finished_secret, hashlen)
+                || !tls13_hkdf_expand(s, md, s->handshake_secret, server_handshake_traffic,
+                                      sizeof(server_handshake_traffic)-1, hash, hashlen,
+                                      s->server_hand_traffic_secret, hashlen, 1)
+                || !ssl_log_secret(s, SERVER_HANDSHAKE_LABEL, s->server_hand_traffic_secret, hashlen)
+                || !tls13_derive_finishedkey(s, md, s->server_hand_traffic_secret,
+                                             s->server_finished_secret, hashlen)) {
+                /* SSLfatal() already called */
+                goto err;
+            }
+        } else {
+            level = ssl_encryption_application;
+
+            if (!tls13_hkdf_expand(s, md, s->master_secret, client_application_traffic,
+                                   sizeof(client_application_traffic)-1, hash, hashlen,
+                                   s->client_app_traffic_secret, hashlen, 1)
+                || !ssl_log_secret(s, CLIENT_APPLICATION_LABEL, s->client_app_traffic_secret, hashlen)
+                || !tls13_hkdf_expand(s, md, s->master_secret, server_application_traffic,
+                                      sizeof(server_application_traffic)-1, hash, hashlen,
+                                      s->server_app_traffic_secret, hashlen, 1)
+                || !ssl_log_secret(s, SERVER_APPLICATION_LABEL, s->server_app_traffic_secret, hashlen)) {
+                /* SSLfatal() already called */
+                goto err;
+            }
+        }
+        if (!quic_set_encryption_secrets(s, level)) {
+            /* SSLfatal() already called */
+            goto err;
+        }
+        if (s->server)
+            s->quic_write_level = level;
+        else
+            s->quic_read_level = level;
+    } else {
+        /* is_client_write || is_server_read */
+
+        if (is_early) {
+            level = ssl_encryption_early_data;
+
+            if (!tls13_hkdf_expand(s, md, s->early_secret, client_early_traffic,
+                                   sizeof(client_early_traffic)-1, hash, hashlen,
+                                   s->client_early_traffic_secret, hashlen, 1)
+                || !ssl_log_secret(s, CLIENT_EARLY_LABEL, s->client_early_traffic_secret, hashlen)
+                || !quic_set_encryption_secrets(s, level)) {
+                /* SSLfatal() already called */
+                goto err;
+            }
+        } else if (is_handshake) {
+            level = ssl_encryption_handshake;
+        } else {
+            level = ssl_encryption_application;
+            /*
+             * We also create the resumption master secret, but this time use the
+             * hash for the whole handshake including the Client Finished
+             */
+            if (!tls13_hkdf_expand(s, md, s->master_secret, resumption_master_secret,
+                                   sizeof(resumption_master_secret)-1, hash, hashlen,
+                                   s->resumption_master_secret, hashlen, 1)) {
+                /* SSLfatal() already called */
+                goto err;
+            }
+        }
+
+        if (s->server)
+            s->quic_read_level = level;
+        else
+            s->quic_write_level = level;
+    }
+
+    ret = 1;
+ err:
+    return ret;
+}
+#endif /* OPENSSL_NO_QUIC */
 int tls13_change_cipher_state(SSL *s, int which)
 {
-#ifdef CHARSET_EBCDIC
-  static const unsigned char client_early_traffic[]       = {0x63, 0x20, 0x65, 0x20,       /*traffic*/0x74, 0x72, 0x61, 0x66, 0x66, 0x69, 0x63, 0x00};
-  static const unsigned char client_handshake_traffic[]   = {0x63, 0x20, 0x68, 0x73, 0x20, /*traffic*/0x74, 0x72, 0x61, 0x66, 0x66, 0x69, 0x63, 0x00};
-  static const unsigned char client_application_traffic[] = {0x63, 0x20, 0x61, 0x70, 0x20, /*traffic*/0x74, 0x72, 0x61, 0x66, 0x66, 0x69, 0x63, 0x00};
-  static const unsigned char server_handshake_traffic[]   = {0x73, 0x20, 0x68, 0x73, 0x20, /*traffic*/0x74, 0x72, 0x61, 0x66, 0x66, 0x69, 0x63, 0x00};
-  static const unsigned char server_application_traffic[] = {0x73, 0x20, 0x61, 0x70, 0x20, /*traffic*/0x74, 0x72, 0x61, 0x66, 0x66, 0x69, 0x63, 0x00};
-  static const unsigned char exporter_master_secret[] = {0x65, 0x78, 0x70, 0x20,                    /* master*/  0x6D, 0x61, 0x73, 0x74, 0x65, 0x72, 0x00};
-  static const unsigned char resumption_master_secret[] = {0x72, 0x65, 0x73, 0x20,                  /* master*/  0x6D, 0x61, 0x73, 0x74, 0x65, 0x72, 0x00};
-  static const unsigned char early_exporter_master_secret[] = {0x65, 0x20, 0x65, 0x78, 0x70, 0x20,  /* master*/  0x6D, 0x61, 0x73, 0x74, 0x65, 0x72, 0x00};
-#else
-    static const unsigned char client_early_traffic[] = "c e traffic";
-    static const unsigned char client_handshake_traffic[] = "c hs traffic";
-    static const unsigned char client_application_traffic[] = "c ap traffic";
-    static const unsigned char server_handshake_traffic[] = "s hs traffic";
-    static const unsigned char server_application_traffic[] = "s ap traffic";
-    static const unsigned char exporter_master_secret[] = "exp master";
-    static const unsigned char resumption_master_secret[] = "res master";
-    static const unsigned char early_exporter_master_secret[] = "e exp master";
-#endif
     unsigned char *iv;
+    unsigned char key[EVP_MAX_KEY_LENGTH];
     unsigned char secret[EVP_MAX_MD_SIZE];
     unsigned char hashval[EVP_MAX_MD_SIZE];
     unsigned char *hash = hashval;
@@ -492,6 +605,17 @@ int tls13_change_cipher_state(SSL *s, int which)
     int ret = 0;
     const EVP_MD *md = NULL;
     const EVP_CIPHER *cipher = NULL;
+#if !defined(OPENSSL_NO_KTLS) && defined(OPENSSL_KTLS_TLS13)
+# ifndef __FreeBSD__
+    struct tls_crypto_info_all crypto_info;
+    BIO *bio;
+# endif
+#endif
+
+#ifndef OPENSSL_NO_QUIC
+    if (SSL_IS_QUIC(s))
+        return quic_change_cipher_state(s, which);
+#endif
 
     if (which & SSL3_CC_READ) {
         if (s->enc_read_ctx != NULL) {
@@ -583,6 +707,7 @@ int tls13_change_cipher_state(SSL *s, int which)
                          SSL_F_TLS13_CHANGE_CIPHER_STATE, ERR_R_MALLOC_FAILURE);
                 goto err;
             }
+
             cipher = EVP_get_cipherbynid(SSL_CIPHER_get_cipher_nid(sslcipher));
             md = ssl_md(sslcipher->algorithm2);
             if (md == NULL || !EVP_DigestInit_ex(mdctx, md, NULL)
@@ -694,9 +819,13 @@ int tls13_change_cipher_state(SSL *s, int which)
         }
     }
 
+    /* check whether cipher is known */
+    if(!ossl_assert(cipher != NULL))
+        goto err;
+
     if (!derive_secret_key_and_iv(s, which & SSL3_CC_WRITE, md, cipher,
-                                  insecret, hash, label, labellen, secret, iv,
-                                  ciph_ctx)) {
+                                  insecret, hash, label, labellen, secret, key,
+                                  iv, ciph_ctx)) {
         /* SSLfatal() already called */
         goto err;
     }
@@ -737,8 +866,53 @@ int tls13_change_cipher_state(SSL *s, int which)
         s->statem.enc_write_state = ENC_WRITE_STATE_WRITE_PLAIN_ALERTS;
     else
         s->statem.enc_write_state = ENC_WRITE_STATE_VALID;
+#ifndef OPENSSL_NO_KTLS
+# if defined(OPENSSL_KTLS_TLS13)
+#  ifndef __FreeBSD__
+    if (!(which & SSL3_CC_WRITE) || !(which & SSL3_CC_APPLICATION)
+        || ((which & SSL3_CC_WRITE) && (s->mode & SSL_MODE_NO_KTLS_TX)))
+        goto skip_ktls;
+
+    /* ktls supports only the maximum fragment size */
+    if (ssl_get_max_send_fragment(s) != SSL3_RT_MAX_PLAIN_LENGTH)
+        goto skip_ktls;
+
+    /* ktls does not support record padding */
+    if (s->record_padding_cb != NULL)
+        goto skip_ktls;
+
+    /* check that cipher is supported */
+    if (!ktls_check_supported_cipher(cipher, ciph_ctx))
+        goto skip_ktls;
+
+    bio = s->wbio;
+
+    if (!ossl_assert(bio != NULL)) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_TLS13_CHANGE_CIPHER_STATE,
+                 ERR_R_INTERNAL_ERROR);
+        goto err;
+    }
+
+    /* All future data will get encrypted by ktls. Flush the BIO or skip ktls */
+    if (BIO_flush(bio) <= 0)
+        goto skip_ktls;
+
+    /* configure kernel crypto structure */
+    if (!ktls_configure_crypto(cipher, s->version, ciph_ctx, 
+                               RECORD_LAYER_get_write_sequence(&s->rlayer),
+                               &crypto_info, NULL, iv, key))
+        goto skip_ktls;
+
+    /* ktls works with user provided buffers directly */
+    if (BIO_set_ktls(bio, &crypto_info, which & SSL3_CC_WRITE))
+        ssl3_release_write_buffer(s);
+#  endif
+skip_ktls:
+# endif
+#endif
     ret = 1;
  err:
+    OPENSSL_cleanse(key, sizeof(key));
     OPENSSL_cleanse(secret, sizeof(secret));
     return ret;
 }
@@ -752,6 +926,7 @@ int tls13_update_key(SSL *s, int sending)
 #endif
     const EVP_MD *md = ssl_handshake_md(s);
     size_t hashlen = EVP_MD_size(md);
+    unsigned char key[EVP_MAX_KEY_LENGTH];
     unsigned char *insecret, *iv;
     unsigned char secret[EVP_MAX_MD_SIZE];
     EVP_CIPHER_CTX *ciph_ctx;
@@ -776,8 +951,8 @@ int tls13_update_key(SSL *s, int sending)
     if (!derive_secret_key_and_iv(s, sending, ssl_handshake_md(s),
                                   s->s3.tmp.new_sym_enc, insecret, NULL,
                                   application_traffic,
-                                  sizeof(application_traffic) - 1, secret, iv,
-                                  ciph_ctx)) {
+                                  sizeof(application_traffic) - 1, secret, key,
+                                  iv, ciph_ctx)) {
         /* SSLfatal() already called */
         goto err;
     }
@@ -787,6 +962,7 @@ int tls13_update_key(SSL *s, int sending)
     s->statem.enc_write_state = ENC_WRITE_STATE_VALID;
     ret = 1;
  err:
+    OPENSSL_cleanse(key, sizeof(key));
     OPENSSL_cleanse(secret, sizeof(secret));
     return ret;
 }

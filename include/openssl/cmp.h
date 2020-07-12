@@ -18,7 +18,6 @@
 #  include <openssl/crmf.h>
 #  include <openssl/cmperr.h>
 #  include <openssl/cmp_util.h>
-#  include <openssl/http.h>
 
 /* explicit #includes not strictly needed since implied by the above: */
 #  include <openssl/types.h>
@@ -271,14 +270,17 @@ int OSSL_CMP_CTX_get_option(const OSSL_CMP_CTX *ctx, int opt);
 int OSSL_CMP_CTX_set_log_cb(OSSL_CMP_CTX *ctx, OSSL_CMP_log_cb_t cb);
 #  define OSSL_CMP_CTX_set_log_verbosity(ctx, level) \
     OSSL_CMP_CTX_set_option(ctx, OSSL_CMP_OPT_LOG_VERBOSITY, level)
-void OSSL_CMP_CTX_print_errors(OSSL_CMP_CTX *ctx);
+void OSSL_CMP_CTX_print_errors(const OSSL_CMP_CTX *ctx);
 /* message transfer: */
 int OSSL_CMP_CTX_set1_serverPath(OSSL_CMP_CTX *ctx, const char *path);
-int OSSL_CMP_CTX_set1_server(OSSL_CMP_CTX *ctx, const char *address);
+int OSSL_CMP_CTX_set1_serverName(OSSL_CMP_CTX *ctx, const char *name);
 int OSSL_CMP_CTX_set_serverPort(OSSL_CMP_CTX *ctx, int port);
-int OSSL_CMP_CTX_set1_proxy(OSSL_CMP_CTX *ctx, const char *name);
-int OSSL_CMP_CTX_set1_no_proxy(OSSL_CMP_CTX *ctx, const char *names);
-int OSSL_CMP_CTX_set_http_cb(OSSL_CMP_CTX *ctx, OSSL_HTTP_bio_cb_t cb);
+#  define OSSL_CMP_DEFAULT_PORT 80
+int OSSL_CMP_CTX_set1_proxyName(OSSL_CMP_CTX *ctx, const char *name);
+int OSSL_CMP_CTX_set_proxyPort(OSSL_CMP_CTX *ctx, int port);
+typedef BIO *(*OSSL_CMP_http_cb_t) (OSSL_CMP_CTX *ctx, BIO *hbio,
+                                    unsigned long detail);
+int OSSL_CMP_CTX_set_http_cb(OSSL_CMP_CTX *ctx, OSSL_CMP_http_cb_t cb);
 int OSSL_CMP_CTX_set_http_cb_arg(OSSL_CMP_CTX *ctx, void *arg);
 void *OSSL_CMP_CTX_get_http_cb_arg(const OSSL_CMP_CTX *ctx);
 typedef OSSL_CMP_MSG *(*OSSL_CMP_transfer_cb_t) (OSSL_CMP_CTX *ctx,
@@ -359,12 +361,8 @@ int i2d_OSSL_CMP_MSG_bio(BIO *bio, const OSSL_CMP_MSG *msg);
 
 /* from cmp_vfy.c */
 int OSSL_CMP_validate_msg(OSSL_CMP_CTX *ctx, const OSSL_CMP_MSG *msg);
-int OSSL_CMP_validate_cert_path(OSSL_CMP_CTX *ctx,
+int OSSL_CMP_validate_cert_path(const OSSL_CMP_CTX *ctx,
                                 X509_STORE *trusted_store, X509 *cert);
-
-/* from cmp_http.c */
-OSSL_CMP_MSG *OSSL_CMP_MSG_http_perform(OSSL_CMP_CTX *ctx,
-                                        const OSSL_CMP_MSG *req);
 
 /* from cmp_server.c */
 typedef struct ossl_cmp_srv_ctx_st OSSL_CMP_SRV_CTX;

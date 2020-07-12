@@ -15,6 +15,7 @@
 # include "internal/sockets.h" /* for openssl_fdset() */
 # include <assert.h>
 
+# include <stdarg.h>
 # include <sys/types.h>
 # ifndef OPENSSL_NO_POSIX_IO
 #  include <sys/stat.h>
@@ -29,7 +30,6 @@
 # include <openssl/txt_db.h>
 # include <openssl/engine.h>
 # include <openssl/ocsp.h>
-# include <openssl/http.h>
 # include <signal.h>
 # include "apps_ui.h"
 # include "opt.h"
@@ -179,6 +179,7 @@ typedef struct ca_db_st {
 # endif
 } CA_DB;
 
+void app_bail_out(char *fmt, ...);
 void* app_malloc(int sz, const char *what);
 BIGNUM *load_serial(const char *serialfile, int create, ASN1_INTEGER **retai);
 int save_serial(const char *serialfile, const char *suffix, const BIGNUM *serial,
@@ -226,30 +227,6 @@ void print_cert_checks(BIO *bio, X509 *x,
                        const char *checkemail, const char *checkip);
 
 void store_setup_crl_download(X509_STORE *st);
-
-typedef struct app_http_tls_info_st {
-    const char *server;
-    const char *port;
-    int use_proxy;
-    long timeout;
-    SSL_CTX *ssl_ctx;
-} APP_HTTP_TLS_INFO;
-BIO *app_http_tls_cb(BIO *hbio, /* APP_HTTP_TLS_INFO */ void *arg,
-                     int connect, int detail);
-# ifndef OPENSSL_NO_SOCK
-ASN1_VALUE *app_http_get_asn1(const char *url, const char *proxy,
-                              const char *no_proxy, SSL_CTX *ssl_ctx,
-                              const STACK_OF(CONF_VALUE) *headers,
-                              long timeout, const char *expected_content_type,
-                              const ASN1_ITEM *it);
-ASN1_VALUE *app_http_post_asn1(const char *host, const char *port,
-                               const char *path, const char *proxy,
-                               const char *no_proxy, SSL_CTX *ctx,
-                               const STACK_OF(CONF_VALUE) *headers,
-                               const char *content_type,
-                               ASN1_VALUE *req, const ASN1_ITEM *req_it,
-                               long timeout, const ASN1_ITEM *rsp_it);
-# endif
 
 # define EXT_COPY_NONE   0
 # define EXT_COPY_ADD    1

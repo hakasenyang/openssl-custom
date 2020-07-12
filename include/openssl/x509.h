@@ -365,10 +365,16 @@ int X509_signature_print(BIO *bp, const X509_ALGOR *alg,
 
 int X509_sign(X509 *x, EVP_PKEY *pkey, const EVP_MD *md);
 int X509_sign_ctx(X509 *x, EVP_MD_CTX *ctx);
+# ifndef OPENSSL_NO_OCSP
+int X509_http_nbio(OCSP_REQ_CTX *rctx, X509 **pcert);
+# endif
 int X509_REQ_sign(X509_REQ *x, EVP_PKEY *pkey, const EVP_MD *md);
 int X509_REQ_sign_ctx(X509_REQ *x, EVP_MD_CTX *ctx);
 int X509_CRL_sign(X509_CRL *x, EVP_PKEY *pkey, const EVP_MD *md);
 int X509_CRL_sign_ctx(X509_CRL *x, EVP_MD_CTX *ctx);
+# ifndef OPENSSL_NO_OCSP
+int X509_CRL_http_nbio(OCSP_REQ_CTX *rctx, X509_CRL **pcrl);
+# endif
 int NETSCAPE_SPKI_sign(NETSCAPE_SPKI *x, EVP_PKEY *pkey, const EVP_MD *md);
 
 int X509_pubkey_digest(const X509 *data, const EVP_MD *type,
@@ -382,13 +388,6 @@ int X509_REQ_digest(const X509_REQ *data, const EVP_MD *type,
                     unsigned char *md, unsigned int *len);
 int X509_NAME_digest(const X509_NAME *data, const EVP_MD *type,
                      unsigned char *md, unsigned int *len);
-
-# if !defined(OPENSSL_NO_SOCK)
-X509 *X509_load_http(const char *url, BIO *bio, BIO *rbio, int timeout);
-#  define X509_http_nbio(url) X509_load_http(url, NULL, NULL, 0)
-X509_CRL *X509_CRL_load_http(const char *url, BIO *bio, BIO *rbio, int timeout);
-#  define X509_CRL_http_nbio(url) X509_CRL_load_http(url, NULL,  NULL, 0)
-# endif
 
 # ifndef OPENSSL_NO_STDIO
 X509 *d2i_X509_fp(FILE *fp, X509 **x509);
@@ -519,8 +518,8 @@ DECLARE_ASN1_FUNCTIONS(X509_VAL)
 DECLARE_ASN1_FUNCTIONS(X509_PUBKEY)
 
 int X509_PUBKEY_set(X509_PUBKEY **x, EVP_PKEY *pkey);
-EVP_PKEY *X509_PUBKEY_get0(X509_PUBKEY *key);
-EVP_PKEY *X509_PUBKEY_get(X509_PUBKEY *key);
+EVP_PKEY *X509_PUBKEY_get0(const X509_PUBKEY *key);
+EVP_PKEY *X509_PUBKEY_get(const X509_PUBKEY *key);
 int X509_get_pubkey_parameters(EVP_PKEY *pkey, STACK_OF(X509) *chain);
 long X509_get_pathlen(X509 *x);
 DECLARE_ASN1_ENCODE_FUNCTIONS_only(EVP_PKEY, PUBKEY)
@@ -1052,7 +1051,8 @@ int X509_PUBKEY_set0_param(X509_PUBKEY *pub, ASN1_OBJECT *aobj,
                            unsigned char *penc, int penclen);
 int X509_PUBKEY_get0_param(ASN1_OBJECT **ppkalg,
                            const unsigned char **pk, int *ppklen,
-                           X509_ALGOR **pa, X509_PUBKEY *pub);
+                           X509_ALGOR **pa, const X509_PUBKEY *pub);
+int X509_PUBKEY_eq(const X509_PUBKEY *a, const X509_PUBKEY *b);
 
 int X509_check_trust(X509 *x, int id, int flags);
 int X509_TRUST_get_count(void);

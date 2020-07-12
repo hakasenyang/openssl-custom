@@ -87,6 +87,7 @@ extern "C" {
 # define SSL_TXT_kECDHEPSK       "kECDHEPSK"
 # define SSL_TXT_kDHEPSK         "kDHEPSK"
 # define SSL_TXT_kGOST           "kGOST"
+# define SSL_TXT_kGOST18         "kGOST18"
 # define SSL_TXT_kSRP            "kSRP"
 
 # define SSL_TXT_aRSA            "aRSA"
@@ -138,6 +139,7 @@ extern "C" {
 # define SSL_TXT_ARIA128         "ARIA128"
 # define SSL_TXT_ARIA256         "ARIA256"
 # define SSL_TXT_GOST2012_GOST8912_GOST8912 "GOST2012-GOST8912-GOST8912"
+# define SSL_TXT_CBC             "CBC"
 
 # define SSL_TXT_MD5             "MD5"
 # define SSL_TXT_SHA1            "SHA1"
@@ -325,14 +327,9 @@ typedef int (*SSL_async_callback_fn)(SSL *s, void *arg);
 /* Allow initial connection to servers that don't support RI */
 # define SSL_OP_LEGACY_SERVER_CONNECT                    0x00000004U
 
-/* Reserved value (until OpenSSL 3.0.0)                  0x00000008U */
 # define SSL_OP_TLSEXT_PADDING                           0x00000010U
-/* Reserved value (until OpenSSL 3.0.0)                  0x00000020U */
 # define SSL_OP_SAFARI_ECDHE_ECDSA_BUG                   0x00000040U
-/*
- * Reserved value (until OpenSSL 3.0.0)                  0x00000080U
- * Reserved value (until OpenSSL 3.0.0)                  0x00000100U
- */
+# define SSL_OP_IGNORE_UNEXPECTED_EOF                    0x00000080U
 
 # define SSL_OP_DISABLE_TLSEXT_CA_NAMES                  0x00000200U
 
@@ -934,6 +931,8 @@ __owur int SSL_extension_supported(unsigned int ext_type);
 
 # define SSL_MAC_FLAG_READ_MAC_STREAM 1
 # define SSL_MAC_FLAG_WRITE_MAC_STREAM 2
+# define SSL_MAC_FLAG_READ_MAC_TLSTREE 4
+# define SSL_MAC_FLAG_WRITE_MAC_TLSTREE 8
 
 /*
  * A callback for logging out TLS key material. This callback should log out
@@ -2029,9 +2028,9 @@ __owur int SSL_CTX_set_default_verify_store(SSL_CTX *ctx);
 __owur int SSL_CTX_load_verify_file(SSL_CTX *ctx, const char *CAfile);
 __owur int SSL_CTX_load_verify_dir(SSL_CTX *ctx, const char *CApath);
 __owur int SSL_CTX_load_verify_store(SSL_CTX *ctx, const char *CAstore);
-DEPRECATEDIN_3_0(__owur int SSL_CTX_load_verify_locations(SSL_CTX *ctx,
+__owur int SSL_CTX_load_verify_locations(SSL_CTX *ctx,
                                                         const char *CAfile,
-                                                        const char *CApath))
+                                                        const char *CApath);
 # define SSL_get0_session SSL_get_session/* just peek at pointer */
 __owur SSL_SESSION *SSL_get_session(const SSL *ssl);
 __owur SSL_SESSION *SSL_get1_session(SSL *ssl); /* obtain a reference count */
@@ -2170,7 +2169,7 @@ void SSL_CTX_set_record_padding_callback_arg(SSL_CTX *ctx, void *arg);
 void *SSL_CTX_get_record_padding_callback_arg(const SSL_CTX *ctx);
 int SSL_CTX_set_block_padding(SSL_CTX *ctx, size_t block_size);
 
-void SSL_set_record_padding_callback(SSL *ssl,
+int SSL_set_record_padding_callback(SSL *ssl,
                                     size_t (*cb) (SSL *ssl, int type,
                                                   size_t len, void *arg));
 void SSL_set_record_padding_callback_arg(SSL *ssl, void *arg);
@@ -2480,6 +2479,51 @@ void SSL_set_allow_early_data_cb(SSL *s,
 /* store the default cipher strings inside the library */
 const char *OSSL_default_cipher_list(void);
 const char *OSSL_default_ciphersuites(void);
+
+#  ifndef OPENSSL_NO_QUIC
+/*
+ * QUIC integration - The QUIC interface matches BoringSSL
+ *
+ * ssl_encryption_level_t represents a specific QUIC encryption level used to
+ * transmit handshake messages. BoringSSL has this as an 'enum'.
+ */
+typedef enum ssl_encryption_level_t {
+    ssl_encryption_initial = 0,
+    ssl_encryption_early_data,
+    ssl_encryption_handshake,
+    ssl_encryption_application
+} OSSL_ENCRYPTION_LEVEL;
+
+struct ssl_quic_method_st {
+    int (*set_encryption_secrets)(SSL *ssl, OSSL_ENCRYPTION_LEVEL level,
+                                  const uint8_t *read_secret,
+                                  const uint8_t *write_secret, size_t secret_len);
+    int (*add_handshake_data)(SSL *ssl, OSSL_ENCRYPTION_LEVEL level,
+                              const uint8_t *data, size_t len);
+    int (*flush_flight)(SSL *ssl);
+    int (*send_alert)(SSL *ssl, enum ssl_encryption_level_t level, uint8_t alert);
+};
+
+__owur int SSL_CTX_set_quic_method(SSL_CTX *ctx, const SSL_QUIC_METHOD *quic_method);
+__owur int SSL_set_quic_method(SSL *ssl, const SSL_QUIC_METHOD *quic_method);
+__owur int SSL_set_quic_transport_params(SSL *ssl,
+                                         const uint8_t *params,
+                                         size_t params_len);
+void SSL_get_peer_quic_transport_params(const SSL *ssl,
+                                        const uint8_t **out_params,
+                                        size_t *out_params_len);
+__owur size_t SSL_quic_max_handshake_flight_len(const SSL *ssl, OSSL_ENCRYPTION_LEVEL level);
+__owur OSSL_ENCRYPTION_LEVEL SSL_quic_read_level(const SSL *ssl);
+__owur OSSL_ENCRYPTION_LEVEL SSL_quic_write_level(const SSL *ssl);
+__owur int SSL_provide_quic_data(SSL *ssl, OSSL_ENCRYPTION_LEVEL level,
+                                 const uint8_t *data, size_t len);
+__owur int SSL_process_quic_post_handshake(SSL *ssl);
+
+__owur int SSL_is_quic(SSL *ssl);
+
+#  endif
+
+int SSL_CIPHER_get_prf_nid(const SSL_CIPHER *c);
 
 # ifdef  __cplusplus
 }

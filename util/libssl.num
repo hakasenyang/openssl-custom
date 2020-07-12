@@ -354,7 +354,7 @@ SSL_set_session_id_context              354	3_0_0	EXIST::FUNCTION:
 SSL_new                                 355	3_0_0	EXIST::FUNCTION:
 TLSv1_1_method                          356	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_1_1_0,TLS1_1_METHOD
 SSL_CTX_get_cert_store                  357	3_0_0	EXIST::FUNCTION:
-SSL_CTX_load_verify_locations           358	3_0_0	EXIST::FUNCTION:DEPRECATEDIN_3_0
+SSL_CTX_load_verify_locations           358	3_0_0	EXIST::FUNCTION:
 SSL_SESSION_print_fp                    359	3_0_0	EXIST::FUNCTION:STDIO
 SSL_get0_dane_tlsa                      360	3_0_0	EXIST::FUNCTION:
 SSL_CTX_set_generate_session_id         361	3_0_0	EXIST::FUNCTION:
@@ -515,3 +515,14 @@ SSL_CTX_set_tlsext_ticket_key_evp_cb    ?	3_0_0	EXIST::FUNCTION:
 SSL_CTX_new_with_libctx                 ?	3_0_0	EXIST::FUNCTION:
 SSL_new_session_ticket                  ?	3_0_0	EXIST::FUNCTION:
 SSL_CTX_set_timeout_tls13               ?	3_0_0	EXIST::FUNCTION:
+SSL_CTX_set_quic_method                 ?	3_0_0	EXIST::FUNCTION:QUIC
+SSL_set_quic_method                     ?	3_0_0	EXIST::FUNCTION:QUIC
+SSL_set_quic_transport_params           ?	3_0_0	EXIST::FUNCTION:QUIC
+SSL_get_peer_quic_transport_params      ?	3_0_0	EXIST::FUNCTION:QUIC
+SSL_quic_max_handshake_flight_len       ?	3_0_0	EXIST::FUNCTION:QUIC
+SSL_quic_read_level                     ?	3_0_0	EXIST::FUNCTION:QUIC
+SSL_quic_write_level                    ?	3_0_0	EXIST::FUNCTION:QUIC
+SSL_provide_quic_data                   ?	3_0_0	EXIST::FUNCTION:QUIC
+SSL_process_quic_post_handshake         ?	3_0_0	EXIST::FUNCTION:QUIC
+SSL_is_quic                             ?	3_0_0	EXIST::FUNCTION:QUIC
+SSL_CIPHER_get_prf_nid                  ?	3_0_0	EXIST::FUNCTION:
